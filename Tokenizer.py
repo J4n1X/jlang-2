@@ -23,6 +23,14 @@ class Tokenizer:
             i += 1
         return string[0:i]
 
+    @staticmethod
+    def __get_escape_value(char: str) -> str:
+        if char == 'n':
+            return '\n'
+        elif char == '\\':
+            return '\\'
+        else:
+            assert False, f"\\{char}: Escape sequence for this char is not yet supported"
 
     def __init__(self, filename):
         self.filename = filename
@@ -34,7 +42,7 @@ class Tokenizer:
             for (line_number, line) in enumerate(lines):
                 self.line += 1
                 assert len(TokenType) == 6, "Too many TokenTypes defined at Tokenizer init"
-                assert len(Keyword) == 15, "Too many Keywords defined at Tokenizer init"
+                assert len(Keyword) == 17, "Too many Keywords defined at Tokenizer init"
                 assert len(Manipulator) == 11, "Too many Manipulators defined at Tokenizer init"
                 
                 char_pos = 0
@@ -72,7 +80,11 @@ class Tokenizer:
                     elif line[char_pos] == '"':
                         char_pos += 1
                         while line[char_pos] != '"':
-                            word += line[char_pos]
+                            if line[char_pos] == '\\':
+                                char_pos += 1
+                                word += Tokenizer.__get_escape_value(line[char_pos])
+                            else:
+                                word += line[char_pos]
                             char_pos += 1
                         char_pos += 1
                         self.tokens.append(Token(TokenType.STRING_LITERAL, word, (self.filename, self.line, self.column), word))

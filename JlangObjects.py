@@ -1,3 +1,4 @@
+from lib2to3.pgen2 import token
 from typing import *
 from enum import Enum, auto
 from dataclasses import dataclass, field
@@ -8,6 +9,22 @@ compiler_current_scope: Dict[str, int] = {}
 LocTuple = Tuple[str, int, int]
 def format_location(loc: LocTuple) -> str:
         return f"{loc[0]}:{loc[1]}:{loc[2]}"
+
+
+__abi_regs: List[str] = [
+    "rdi",
+    "rsi",
+    "rdx",
+    "r10",
+    "r9"
+]
+
+def get_abi_reg_name(argnum: int) -> str:
+    if argnum > len(__abi_regs):
+        return "stack-reverse"
+    else:
+        return __abi_regs[argnum]
+    
 
 class Keyword(Enum):
     # controllers are used to control the flow of the program
@@ -24,13 +41,24 @@ class Keyword(Enum):
     # invokers are used to invoke functions or syscalls
     PRINT = auto()
     CALL = auto()
+    SYSCALL0 = auto()
     SYSCALL1 = auto()
     SYSCALL2 = auto()
     SYSCALL3 = auto()
     SYSCALL4 = auto()
-    SYSCALL5 = auto()
+    SYSCALL5 = auto(),
+    DROP = auto()
 
-assert len(Keyword) == 15, "Too many Keywords defined"
+valid_syscalls: List[Keyword] = [
+    Keyword.SYSCALL0,
+    Keyword.SYSCALL1,
+    Keyword.SYSCALL2,
+    Keyword.SYSCALL3,
+    Keyword.SYSCALL4,
+    Keyword.SYSCALL5
+]
+
+assert len(Keyword) == 17, "Too many Keywords defined"
 KEYWORDS_BY_NAME: Dict[str, Keyword] = {
     keyword.name.lower(): keyword for keyword in Keyword
 }
@@ -41,7 +69,7 @@ class TokenType(Enum):
     IDENTIFIER = auto()     # identifiers for variables and functions
     INT_LITERAL = auto()    # number literals
     STRING_LITERAL = auto() # string literals
-    MANIPULATOR = auto()    # Things that manipulate values on the stack (consume or produce)
+    MANIPULATOR = auto()    # Things that manipulate values on the stack (consume or produce), except for drop
     EOE = auto()            # End of expression
 
 assert len(TokenType) == 6, "Too many TokenTypes defined"
@@ -314,6 +342,50 @@ class BinaryExpr(Expression):
         else:
             raise ValueError(f"Unknown binary operator {self.token.value} at {format_location(self.token.location)}")
 
+class SyscallExpr(Expression): 
+    def __init__(self, token: Token, calltype: Keyword, callnum: int, args: List[Expression] = []):
+        if calltype not in valid_syscalls:
+            raise Exception(f"{calltype} is not a valid Syscall type")
+        self.calltype = calltype
+        super().__init__(token, callnum)
+        self.type = ExprType.ANY
+        self.args = args
+    
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}System Call: {self.calltype}")
+        print(f"{' ' * depth}Call Number: {self.value}")
+        print(f"{' ' * depth}Arguments:")
+        for arg in self.args:
+            arg.print(depth + 4)
+        
+    def codegen(self, sink: io.StringIO):
+        sink.write("; System Call")
+        for i, arg in enumerate(self.args):
+            arg.codegen(sink)
+            sink.write(f"pop {get_abi_reg_name(i)}\n")
+        # mov rax last, as it's used to push/pop
+        sink.write(f"mov rax, {self.value}\n")
+        sink.write("syscall\n")
+        sink.write("push rax\n")
+
+
+class DropStmt(Statement):
+    def __init__(self, token: Token, expr: Expression):
+        super().__init__(token)
+        self.expr = expr
+    
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}Drop Statement")
+        print(f"{' ' * depth}Dropped Expression:")
+        self.expr.print(depth + 4)
+
+    def codegen(self, sink: io.StringIO):
+        sink.write("; Drop Statement\n")
+        self.expr.codegen(sink)
+        sink.write("pop rax\n")
+
+
+
 class VarDefStmt(Statement):
     def __init__(self, token: Token, name: str, var_type: IdentType, type = ExprType.ANY,value = None):
         super().__init__(token, type)
@@ -389,7 +461,10 @@ class FunStmt(Statement):
 
         print(f"{' ' * depth}Block:")
         for expr in self.block:
-            expr.print(depth + 4)
+            if expr is None:
+                print(f"{' ' * depth}None")
+            else:
+                expr.print(depth + 4)
     
     def codegen(self, sink: io.StringIO):
         i = 0
@@ -418,7 +493,7 @@ class FunStmt(Statement):
         # clear the scope for the next function
         compiler_current_scope.clear()
 
-class ControlStatement(Statement):
+class ControlStmt(Statement):
     def __init__(self, token: Token, condition: Expression, block: List[Statement]):
         super().__init__(token)
         self.condition: Expression = condition
@@ -432,7 +507,7 @@ class ControlStatement(Statement):
         for stmt in self.block:
             stmt.print(depth + 4)
 
-class IfStmt(ControlStatement):
+class IfStmt(ControlStmt):
     def __init__(self, token: Token, condition: Expression, block: List[Statement]):
         super().__init__(token, condition, block)
 
@@ -456,7 +531,7 @@ class IfStmt(ControlStatement):
 
         sink.write(f".if_block_end_{label_base}:\n")
 
-class WhileStmt(ControlStatement):
+class WhileStmt(ControlStmt):
     def __init__(self, token: Token, condition: Expression, block: List[Statement]):
         super().__init__(token, condition, block)
     
@@ -493,3 +568,4 @@ class FunCallStmt(Statement):
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {format_location(self.token.location)} Function Call\n")
         sink.write(f"call {self.target}\n")
+

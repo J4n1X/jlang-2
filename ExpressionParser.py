@@ -133,13 +133,13 @@ class ExpressionParser:
             return expr
 
     def parse_keyword(self) -> Statement:
-        assert len(Keyword) == 15, "Too many keywords defined at ExpressionParser.parse_keyword"
+        assert len(Keyword) == 17, "Too many keywords defined at ExpressionParser.parse_keyword"
         assert self.cur_tok is not None, "Unexpected EOF"
         if self.cur_tok.value == Keyword.PRINT:
             return self.parse_print_statement()
         elif self.cur_tok.value == Keyword.IF:
             return self.parse_control_statement(Keyword.IF)
-        elif self.cur_tok.value == Keyword.WHILE.WHILE:
+        elif self.cur_tok.value == Keyword.WHILE:
             return self.parse_control_statement(Keyword.WHILE)
         elif self.cur_tok.value == Keyword.FUNCTION:
             return self.parse_function_statement()
@@ -147,6 +147,10 @@ class ExpressionParser:
             return self.parse_function_call_statement()
         elif self.cur_tok.value == Keyword.ASSIGN:
             return self.parse_var_def_statement()
+        elif self.cur_tok.value == Keyword.DROP:
+            return self.parse_drop_statement()
+        elif self.cur_tok.value in valid_syscalls:
+            return self.parse_syscall_expression()
         else: 
             raise Exception(f"Unexpected keyword {self.cur_tok}")
 
@@ -244,7 +248,8 @@ class ExpressionParser:
 
         if self.cur_tok.type != TokenType.INT_LITERAL \
             and self.cur_tok.type != TokenType.STRING_LITERAL \
-            and self.cur_tok.type != TokenType.IDENTIFIER:
+            and self.cur_tok.type != TokenType.IDENTIFIER \
+            and self.cur_tok.value not in valid_syscalls:
             raise Exception(f"Expected literal or identifier after assign keyword at {format_location(prev_tok.location)}")
         
         value = self.parse_statement()
@@ -252,7 +257,7 @@ class ExpressionParser:
             raise ValueError(f"Expected expression after assign keyword at {format_location(prev_tok.location)}")
         
         if self.cur_tok.value != Keyword.TO:
-            raise Exception(f"Expected to keyword after expression at {format_location(prev_tok.location)}")
+            raise Exception(f"Expected to keyword after expression at {format_location(prev_tok.location)}, but got {self.cur_tok}")
         self.__next_token() # eat to keyword
 
         if self.cur_tok.type != TokenType.IDENTIFIER:
@@ -298,14 +303,55 @@ class ExpressionParser:
         
         return var_def
 
-    def parse_print_statement(self) -> Statement:
+    def parse_print_statement(self) -> PrintStmt:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
         self.__next_token()
         # move on and parse more expressions
         expr = self.parse_statement()
         assert isinstance(expr, Expression), "Expected expression after print keyword at %s" % (format_location(prev_tok.location))
+
+        # move past the eoe
+        self.__next_token()
         return PrintStmt(prev_tok, expr)
+
+    def parse_drop_statement(self) -> DropStmt:
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+        self.__next_token()
+
+        expr = self.parse_statement()
+        assert isinstance(expr, Expression), "Expected expression after print keyword at %s" % (format_location(prev_tok.location))
+        
+        # move past the eoe
+        self.__next_token()
+        return DropStmt(prev_tok, expr)
+        
+
+    def parse_syscall_expression(self) -> SyscallExpr:
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+
+        assert isinstance(self.cur_tok.value, Keyword)
+        if self.cur_tok.value not in valid_syscalls:
+            raise Exception(f"{self.cur_tok} is not a valid syscall number")
+        arg_count = valid_syscalls.index(self.cur_tok.value)
+        self.__next_token()
+        # TODO: Support const literals
+        if self.cur_tok.type != TokenType.INT_LITERAL:
+            raise ValueError("Call number must be integer literal")
+        assert isinstance(self.cur_tok.value, int), "Call number value must be integer"
+        callnum: int = self.cur_tok.value
+
+        self.__next_token()
+        args: List[Expression] = []
+        while self.cur_tok is not None and self.cur_tok.type != TokenType.EOE:
+            stmt = self.parse_statement()
+            assert isinstance(stmt, Expression), "Only Expressions are allowed as Syscall arguments"
+            args.append(stmt)
+        if self.cur_tok is None:
+            raise Exception("Unexpected EOF")
+        return SyscallExpr(prev_tok, prev_tok.value, callnum, args)
 
     def parse_ident_expression(self) -> IdentRefExpr:
         assert self.cur_tok is not None, "Unexpected EOF"

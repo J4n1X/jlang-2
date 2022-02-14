@@ -21,23 +21,23 @@ class Program:
         if AST is None:
             raise Exception("Failed to parse program")
 
-        for token in self.parser.tokens:
-            print(token)
+        #for token in self.parser.tokens:
+        #    print(token)
 
         print("--------------------------------")
-        print("Function table:")
+        print("Function table:\n")
         for proto in self.parser.prototypes.values():
             print(proto.name)
 
         print("--------------------------------")
-        print("Global Variables:")
+        print("Global Variables:\n")
         for var in self.parser.global_vars.values():
             print(var.name)
 
 
 
         print("--------------------------------")
-        print("Generated AST:")
+        print("Generated AST:\n")
 
         for expr in AST:
             expr.print(0)
@@ -94,11 +94,12 @@ class Program:
                 var.codegen(out)
 
             out.write("\ncall main\n")
-            
+            out.write("push rax\n")
             # TODO: last number on stack should be the return value
             out.write("; exit\n")
             out.write("mov rax, 60\n")
-            out.write("mov rdi, 0\n")
+            #out.write("mov rdi, 0\n")
+            out.write("pop rdi\n")
             out.write("syscall\n")
 
             if len(self.parser.string_literals) > 0:
@@ -113,7 +114,7 @@ class Program:
 
 
         print(f"Program successfully generated to {self.output_name}")
-        nasm_output = os.popen(f"nasm -f elf64 {self.output_name}")
+        nasm_output = os.popen(f"nasm -f elf64 -g {self.output_name}")
         if nasm_output.close() is not None:
             print("Error while running nasm:")
             print(nasm_output.read())

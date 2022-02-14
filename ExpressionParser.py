@@ -1,3 +1,5 @@
+from ast import expr
+from pickle import TRUE
 from typing import *
 
 from JlangObjects import *
@@ -39,11 +41,43 @@ class ExpressionParser:
         self.__next_token()
         block = []
         while True:
-            print("Currently at: ",self.cur_tok)
             if self.cur_tok is None or self.cur_tok.value == end_keyword:
                 break
             block.append(self.parse_statement())
         return block
+
+    def __get_proto_params(self) -> Dict[str,VarDefStmt]:
+        params: Dict[str,VarDefStmt] = {}
+        if self.cur_tok.type != TokenType.PAREN_BLOCK_START:
+            raise Exception(f"Expected start of parenthesis block at {format_location(self.cur_tok.location)}")
+        self.__next_token()
+        
+        while self.cur_tok is not None and self.cur_tok.type != TokenType.PAREN_BLOCK_END:
+            param = self.parse_var_def_statement(isparam = True)
+            params[param.name] = param
+            
+            if self.cur_tok.type == TokenType.PAREN_BLOCK_END:
+                break
+            elif self.cur_tok.type != TokenType.ARG_DELIMITER:
+                raise Exception(f"Expected ',' at {format_location(self.cur_tok.location)}")
+            self.__next_token()
+        return params
+        
+    def __get_call_args(self) -> List[Expression]:
+        args: List[Expression] = []
+        if self.cur_tok.type != TokenType.PAREN_BLOCK_START:
+            raise Exception(f"Expected start of parenthesis block at {format_location(self.cur_tok.location)}")
+        self.__next_token()
+        while self.cur_tok is not None and self.cur_tok.type != TokenType.PAREN_BLOCK_END:
+            arg = self.parse_primary()
+            assert isinstance(arg, Expression), f"Expected Expression for argument but got {arg.token}"
+            args.append(arg)
+            if self.cur_tok.type == TokenType.PAREN_BLOCK_END:
+                break
+            elif self.cur_tok.type != TokenType.ARG_DELIMITER:
+                raise Exception(f"Expected ',' at {format_location(self.cur_tok.location)}")
+            self.__next_token()
+        return args
 
     # get a reference object for the current identifier token
     def __get_ident_ref(self) -> Optional[IdentRefExpr]:
@@ -53,11 +87,14 @@ class ExpressionParser:
         if self.cur_tok is None:
             return None
         elif self.cur_tok.value in self.prototypes:
-            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.FUNCTION)
+            type = self.prototypes[self.cur_tok.value].type
+            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.FUNCTION, type)
         elif self.cur_tok.value in self.scope_vars:
-            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.VARIABLE)
+            type = self.scope_vars[self.cur_tok.value].type
+            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.VARIABLE, type)
         elif self.cur_tok.value in self.global_vars:
-            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.GLOBAL_VARIABLE)
+            type = self.global_vars[self.cur_tok.value].type
+            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.GLOBAL_VARIABLE, type)
         else:
             return None
     
@@ -92,7 +129,7 @@ class ExpressionParser:
 
 
     def parse_primary(self) -> Optional[Statement]:
-        assert len(TokenType) == 6, "Too many TokenTypes defined at ExpressionParser.parse_primary"
+        assert len(TokenType) == 10, "Too many TokenTypes defined at ExpressionParser.parse_primary"
 
         ret_expr: Optional[Union[Expression, Statement]] = None
         if self.cur_tok is None:
@@ -104,15 +141,13 @@ class ExpressionParser:
             ret_expr = self.parse_keyword()
         elif self.cur_tok.type == TokenType.IDENTIFIER:
             # this must be a reference to a variable or a function
-            ret_expr = self.parse_ident_expression()
+            ret_expr = self.parse_ident()
         elif self.cur_tok.type == TokenType.INT_LITERAL:
             ret_expr = self.parse_int_literal_expression()
         elif self.cur_tok.type == TokenType.STRING_LITERAL:
             ret_expr = self.parse_string_literal_expression()
         else:
             raise Exception(f"Unexpected token {self.cur_tok}")
-        
-        self.__next_token()
         return ret_expr
 
 
@@ -120,9 +155,7 @@ class ExpressionParser:
         expr = self.parse_primary()
 
         if expr is None:
-            return None
-        
-        expr.print()
+            return None    
 
         if isinstance(expr, BinaryExpr) \
             or isinstance(expr, IntLiteralExpr) \
@@ -133,7 +166,7 @@ class ExpressionParser:
             return expr
 
     def parse_keyword(self) -> Statement:
-        assert len(Keyword) == 17, "Too many keywords defined at ExpressionParser.parse_keyword"
+        assert len(Keyword) == 19, "Too many keywords defined at ExpressionParser.parse_keyword"
         assert self.cur_tok is not None, "Unexpected EOF"
         if self.cur_tok.value == Keyword.PRINT:
             return self.parse_print_statement()
@@ -143,12 +176,12 @@ class ExpressionParser:
             return self.parse_control_statement(Keyword.WHILE)
         elif self.cur_tok.value == Keyword.FUNCTION:
             return self.parse_function_statement()
-        elif self.cur_tok.value == Keyword.CALL:
-            return self.parse_function_call_statement()
-        elif self.cur_tok.value == Keyword.ASSIGN:
+        elif self.cur_tok.value == Keyword.DEFINE:
             return self.parse_var_def_statement()
         elif self.cur_tok.value == Keyword.DROP:
             return self.parse_drop_statement()
+        elif self.cur_tok.value == Keyword.RETURN:
+            return self.parse_return_statement()
         elif self.cur_tok.value in valid_syscalls:
             return self.parse_syscall_expression()
         else: 
@@ -160,7 +193,7 @@ class ExpressionParser:
         prev_tok = self.cur_tok
         self.__next_token()
         if self.cur_tok.type != TokenType.IDENTIFIER:
-            raise Exception(f"Expected identifier after function keyword at {format_location(prev_tok)}")
+            raise Exception(f"Expected identifier after function keyword at {format_location(self.cur_tok.location)}, but got {self.cur_tok.value}")
 
         ident = self.__get_ident_ref()
         if ident is not None:
@@ -177,8 +210,22 @@ class ExpressionParser:
 
         self.__next_token()
         # later we'd take the parameters and return type
+        # [14.02.2022] that time is now!
+        params = self.__get_proto_params()
+        self.__next_token() # eat last paren
+        
+        if self.cur_tok.type != TokenType.KEYWORD:
+            raise Exception(f"Expected 'yields' keyword at {format_location(self.cur_tok.location)}")
+        if self.cur_tok.value != Keyword.YIELDS: 
+            raise Exception(f"Expected 'yields' keyword at {format_location(self.cur_tok.location)}")
+        self.__next_token() # eat 'yields' keyword
 
-        return FunProto(prev_tok, name)
+        if self.cur_tok.type != TokenType.TYPE:
+            raise Exception(f"Expected type at {format_location(self.cur_tok.location)}")
+        exprtype = self.cur_tok.value 
+        self.__next_token()
+        
+        return FunProto(prev_tok, name, params, exprtype)
 
 
     def parse_function_statement(self):
@@ -194,7 +241,7 @@ class ExpressionParser:
         print("Parsed function statement, ended at %s" % (format_location(self.cur_tok.location) if self.cur_tok is not None else "EOF"))
         self.in_scope = False 
 
-        fun = FunStmt(proto, block, self.scope_vars.copy())
+        fun = FunStmt(proto, block, self.scope_vars.copy(), proto.type)
 
         self.scope_vars.clear()
         return fun
@@ -202,6 +249,7 @@ class ExpressionParser:
     # TODO: make it so we don't need to add a eoe token at the end
     def parse_control_statement(self, type: Keyword):
         assert self.cur_tok is not None, "Unexpected EOF"
+        print("Parsing control at ", self.cur_tok)
         control_name = type.name.lower()
         if not self.in_scope:
             raise Exception(f"{control_name} statement at {format_location(self.cur_tok.location)} cannot be at top level {self.cur_tok}")
@@ -225,50 +273,68 @@ class ExpressionParser:
 
     def parse_function_call_statement(self):
         prev_tok = self.cur_tok
-        self.__next_token()
         target = self.__get_ident_ref()
 
         if target is None: # the identifier was not found
             raise Exception(f"Invalid identifier after call keyword at {format_location(prev_tok.location)}")
-        elif target.ident_type != IdentType.FUNCTION:
+        elif target.ident_kind != IdentType.FUNCTION:
             raise Exception(f"Attempted to invoke function call with non-function identifier at {format_location(prev_tok.location)}")
         self.__next_token() # eat identifier
 
         # arguments would be parsed here
+        # [14.02.2022] We'll do that now!
+        args: List[Expression] = self.__get_call_args()
+        #self.__next_token() # eat the ')'
 
-        if self.cur_tok.type != TokenType.EOE:
-            raise Exception(f"At {format_location(self.cur_tok.location)}, expected end of statement")
+
+        #if self.cur_tok.type != TokenType.EOE:
+        #    raise Exception(f"At {format_location(self.cur_tok.location)}, expected end of statement")
         #self.__next_token()
-        return FunCallStmt(prev_tok, target.value)
+        return FunCallExpr(prev_tok, target, args)
 
-    def parse_var_def_statement(self) -> VarDefStmt:
+    def parse_var_def_statement(self, isparam = False) -> VarDefStmt:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
-        self.__next_token()
-
-        if self.cur_tok.type != TokenType.INT_LITERAL \
-            and self.cur_tok.type != TokenType.STRING_LITERAL \
-            and self.cur_tok.type != TokenType.IDENTIFIER \
-            and self.cur_tok.value not in valid_syscalls:
-            raise Exception(f"Expected literal or identifier after assign keyword at {format_location(prev_tok.location)}")
-        
-        value = self.parse_statement()
-        if not isinstance(value, Expression):
-            raise ValueError(f"Expected expression after assign keyword at {format_location(prev_tok.location)}")
-        
-        if self.cur_tok.value != Keyword.TO:
-            raise Exception(f"Expected to keyword after expression at {format_location(prev_tok.location)}, but got {self.cur_tok}")
-        self.__next_token() # eat to keyword
+        if not isparam:
+            self.__next_token()
 
         if self.cur_tok.type != TokenType.IDENTIFIER:
-            raise Exception(f"Expected identifier after to keyword at {format_location(prev_tok.location)}")
+            raise Exception(f"Expected identifier after define keyword at {format_location(self.cur_tok.location)}")
 
+        ident_name = self.cur_tok.value
         ident: VarDefStmt = self.__get_ident_def()
-        
-        assert isinstance(self.cur_tok.value, str), "Expected identifier string after to keyword at %s" % (format_location(prev_tok.location))
-        name = self.cur_tok.value
+        self.__next_token() # eat identifier
 
-        if self.in_scope:
+
+        if self.cur_tok.type != TokenType.KEYWORD:
+            raise Exception(f"Expected 'as' after identifier at {format_location(prev_tok.location)}")
+        else:
+            if self.cur_tok.value != Keyword.AS:
+                raise Exception(f"Expected 'as' after identifier at {format_location(prev_tok.location)}")
+        self.__next_token() # eat 'as' keyword
+        
+        if self.cur_tok.type != TokenType.TYPE:
+            raise Exception(f"Expected type after identifier at {format_location(prev_tok.location)}")
+        if not isinstance(self.cur_tok.value, ExprType):
+            raise Exception(f"Expected type after identifier at {format_location(prev_tok.location)}")
+        ident_var_type = self.cur_tok.value
+        self.__next_token() # eat type
+        
+        value: Optional[Expression] = None
+        if self.cur_tok.type == TokenType.KEYWORD:
+            if self.cur_tok.value == Keyword.IS:
+                self.__next_token() # eat 'is' keyword
+                value = self.parse_statement()
+                if not isinstance(value, Expression):
+                    raise ValueError(f"Expected expression after define keyword at {format_location(self.cur_tok.location)}")
+
+        # TODO: put these things in a seperate class or create a comparer function
+        #if self.cur_tok.type != TokenType.EOE and \
+        #    self.cur_tok.type != TokenType.ARG_DELIMITER and \
+        #    self.cur_tok.type != TokenType.PAREN_BLOCK_END:
+        #    raise Exception(f"Expected end of expression at {format_location(self.cur_tok.location)}, but got {self.cur_tok.type}")
+
+        if self.in_scope or isparam:
             if ident is not None:
                 assert len(IdentType) == 3, "Too many IdentTypes defined at ExpressionParser.parse_var_def_statement"
                 if ident.var_type == IdentType.FUNCTION:
@@ -276,14 +342,15 @@ class ExpressionParser:
                 elif ident.var_type == IdentType.GLOBAL_VARIABLE:
                     # do not add to the list of global variables, as it is already there
                     # instead, create a new statement with the new value
-                    var_def = VarDefStmt(prev_tok, name, IdentType.GLOBAL_VARIABLE, ExprType.ANY, value)
+                    var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE, ExprType.ANY, value)
                 elif ident.var_type == IdentType.VARIABLE:
                     # the variable exists, modify it
-                    var_def = VarDefStmt(prev_tok, name, IdentType.VARIABLE, ExprType.ANY, value)
+                    assert False, "Redefinition of variable in 'define' not allowed"
+                    var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ExprType.ANY, value)
             else:
                 # the variable doesn't exist, define it, then add it to the scope
-                var_def = VarDefStmt(prev_tok, name, IdentType.VARIABLE, ExprType.ANY, value)
-                self.scope_vars[name] = var_def
+                var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ident_var_type, value)
+                self.scope_vars[ident_name] = var_def
         else: # global scope
             if ident is not None:
                 assert len(IdentType) == 3, "Too many IdentTypes defined at ExpressionParser.parse_var_def_statement"
@@ -295,13 +362,29 @@ class ExpressionParser:
                     raise Exception(f"Attempted redefinition of Global variable {ident.value} at {format_location(self.cur_tok.location)}; Already defined at {format_location(ident.token.location)}")
             else:
                 # define a new global variable. It is mutable from the global scope
-                var_def = VarDefStmt(prev_tok, name, IdentType.GLOBAL_VARIABLE,ExprType.ANY, value)
-                self.global_vars[name] = var_def
-        self.__next_token() # eat identifier
-        if self.cur_tok.type != TokenType.EOE:
-            raise Exception(f"At {format_location(self.cur_tok.location)}, expected end of statement")
+                var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE,ident_var_type, value)
+                self.global_vars[ident_name] = var_def
+        #self.__next_token() # eat identifier
+        #if self.cur_tok.type != TokenType.EOE:
+        #    raise Exception(f"At {format_location(self.cur_tok.location)}, expected end of statement")
         
         return var_def
+
+    def parse_var_set_statement(self):
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+        ident = self.__get_ident_def()
+        if ident is None:
+            raise Exception(f"Invalid Identifier {self.cur_tok.value} at {format_location(self.cur_tok.location)}")
+        if ident.ident_kind != IdentType.VARIABLE and ident.ident_kind != IdentType.VARIABLE:
+            raise Exception(f"Invalid reference to identifier {self.cur_tok.value} of type {ident.ident_kind} at {format_location(self.cur_tok.location)}")
+        self.__next_token()
+
+        if self.cur_tok.value != TokenType.KEYWORD and self.cur_tok.value == Keyword.IS:
+            raise Exception(f"Expected 'is' after identifer at {format_location(self.cur_tok.location)}")
+
+        value = self.parse_statement()
+        return VarSetStmt(prev_tok, ident.name, value)
 
     def parse_print_statement(self) -> PrintStmt:
         assert self.cur_tok is not None, "Unexpected EOF"
@@ -312,7 +395,7 @@ class ExpressionParser:
         assert isinstance(expr, Expression), "Expected expression after print keyword at %s" % (format_location(prev_tok.location))
 
         # move past the eoe
-        self.__next_token()
+        #self.__next_token()
         return PrintStmt(prev_tok, expr)
 
     def parse_drop_statement(self) -> DropStmt:
@@ -324,9 +407,17 @@ class ExpressionParser:
         assert isinstance(expr, Expression), "Expected expression after print keyword at %s" % (format_location(prev_tok.location))
         
         # move past the eoe
-        self.__next_token()
+        #self.__next_token()
         return DropStmt(prev_tok, expr)
         
+    def parse_return_statement(self) -> ReturnStmt:
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+        self.__next_token()
+        value = self.parse_statement()
+        assert isinstance(value, Expression), f"Value of return must be an Expression at {format_location(prev_tok.location)}"
+        return ReturnStmt(prev_tok, value)
+
 
     def parse_syscall_expression(self) -> SyscallExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
@@ -337,33 +428,36 @@ class ExpressionParser:
             raise Exception(f"{self.cur_tok} is not a valid syscall number")
         arg_count = valid_syscalls.index(self.cur_tok.value)
         self.__next_token()
-        # TODO: Support const literals
-        if self.cur_tok.type != TokenType.INT_LITERAL:
-            raise ValueError("Call number must be integer literal")
-        assert isinstance(self.cur_tok.value, int), "Call number value must be integer"
-        callnum: int = self.cur_tok.value
+        args: List[Expression] = self.__get_call_args()
+        self.__next_token() # eat the ')'
+        callnum = args[0]
+        args.remove(args[0])
 
-        self.__next_token()
-        args: List[Expression] = []
-        while self.cur_tok is not None and self.cur_tok.type != TokenType.EOE:
-            stmt = self.parse_statement()
-            assert isinstance(stmt, Expression), "Only Expressions are allowed as Syscall arguments"
-            args.append(stmt)
-        if self.cur_tok is None:
-            raise Exception("Unexpected EOF")
         return SyscallExpr(prev_tok, prev_tok.value, callnum, args)
 
-    def parse_ident_expression(self) -> IdentRefExpr:
+    def parse_ident(self) -> Statement:
+        next_token = self.tokens[self.index]
         assert self.cur_tok is not None, "Unexpected EOF"
         ident = self.__get_ident_ref()
         if ident is None:
             raise Exception(f"Expected identifier at {format_location(self.cur_tok.location)}")
-        return ident
+        if next_token.type == TokenType.PAREN_BLOCK_START:
+            retval = self.parse_function_call_statement()
+            
+        elif next_token.type == TokenType.KEYWORD and \
+             next_token.value == Keyword.IS:
+            retval = self.parse_var_set_statement()
+        else:
+            retval = ident
+        self.__next_token()
+        return retval
 
     def parse_int_literal_expression(self) -> IntLiteralExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
         assert isinstance(self.cur_tok.value, int), "Expected integer literal at %s" % (format_location(self.cur_tok.location))
-        return IntLiteralExpr(self.cur_tok, self.cur_tok.value)
+        retval = IntLiteralExpr(self.cur_tok, self.cur_tok.value)
+        self.__next_token()
+        return retval
 
     def parse_string_literal_expression(self) -> StringLiteralExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
@@ -372,8 +466,9 @@ class ExpressionParser:
         string_id = len(self.string_literals)
         string_ref = f"str_{string_id}"
         self.string_literals.append(self.cur_tok.value)
-        
-        return StringLiteralExpr(self.cur_tok, string_ref)
+        retval = StringLiteralExpr(self.cur_tok, string_ref)
+        self.__next_token()
+        return retval
 
     def parse_binary_expression(self, prec: int, LHS: Expression) -> Expression:
         assert self.cur_tok is not None, "Unexpected EOF"

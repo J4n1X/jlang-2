@@ -41,8 +41,8 @@ class Tokenizer:
             lines = f.readlines()
             for (line_number, line) in enumerate(lines):
                 self.line += 1
-                assert len(TokenType) == 6, "Too many TokenTypes defined at Tokenizer init"
-                assert len(Keyword) == 17, "Too many Keywords defined at Tokenizer init"
+                assert len(TokenType) == 10, "Too many TokenTypes defined at Tokenizer init"
+                assert len(Keyword) == 19, "Too many Keywords defined at Tokenizer init"
                 assert len(Manipulator) == 11, "Too many Manipulators defined at Tokenizer init"
                 
                 char_pos = 0
@@ -65,6 +65,8 @@ class Tokenizer:
                             self.tokens.append(Token(TokenType.KEYWORD, word, (self.filename, self.line, self.column), KEYWORDS_BY_NAME[word]))
                         elif word in MANIPULATOR_BY_NAME:
                             self.tokens.append(Token(TokenType.MANIPULATOR, word, (self.filename, self.line, self.column), MANIPULATOR_BY_NAME[word]))
+                        elif word in EXPRTYPE_BY_NAME:
+                            self.tokens.append(Token(TokenType.TYPE, word, (self.filename, self.line, self.column), EXPRTYPE_BY_NAME[word]))
                         else:
                             if '-' in word:
                                 raise Exception("Invalid identifier: " + word)
@@ -88,15 +90,22 @@ class Tokenizer:
                             char_pos += 1
                         char_pos += 1
                         self.tokens.append(Token(TokenType.STRING_LITERAL, word, (self.filename, self.line, self.column), word))
-                    elif line[char_pos] == '.': # end of expression
-                        self.tokens.append(Token(TokenType.EOE, None, (self.filename, self.line, self.column)))
+                    elif line[char_pos] == ',': # end of expression
+                        self.tokens.append(Token(TokenType.ARG_DELIMITER, None, (self.filename, self.line, self.column)))
                         char_pos += 1
                     elif line[char_pos] == ';': # this is a comment
                         break
+                    elif line[char_pos] == '(': # paren block start
+                        char_pos += 1
+                        self.tokens.append(Token(TokenType.PAREN_BLOCK_START, '(', (self.filename, self.line, self.column)))
+                    elif line[char_pos] == ')': # paren block end
+                        char_pos += 1
+                        self.tokens.append(Token(TokenType.PAREN_BLOCK_END, ')', (self.filename, self.line, self.column)))
                     else:
                         raise ValueError(f"Invalid starting character {line[char_pos]} for token at {self.filename}:{self.line}:{self.column}")
 
                     if line_number != len(lines):
                         self.column = char_pos + 1
                     else:
+                        self.tokens.append(Token(TokenType.EOE, None, (self.filename, self.line, self.column)))
                         self.column = char_pos + 1

@@ -1,7 +1,7 @@
-from lib2to3.pgen2 import token
 from typing import *
 from enum import Enum, auto
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+import ast
 import io
 
 # tuple for position in file plus it's name
@@ -32,22 +32,25 @@ class Keyword(Enum):
     WHILE = auto()
     # designators are used for the definition of variables and functions
     FUNCTION = auto()
-    ASSIGN = auto()
+    DEFINE = auto()
     # particles are used for the grammar to recognize the end of a grammar block
     DO = auto()
     IS = auto()
+    AS = auto()
     TO = auto()
+    YIELDS = auto()
     DONE = auto()
     # invokers are used to invoke functions or syscalls
     PRINT = auto()
-    CALL = auto()
     SYSCALL0 = auto()
     SYSCALL1 = auto()
     SYSCALL2 = auto()
     SYSCALL3 = auto()
     SYSCALL4 = auto()
     SYSCALL5 = auto(),
+    # other manipulators
     DROP = auto()
+    RETURN = auto()
 
 valid_syscalls: List[Keyword] = [
     Keyword.SYSCALL0,
@@ -58,21 +61,25 @@ valid_syscalls: List[Keyword] = [
     Keyword.SYSCALL5
 ]
 
-assert len(Keyword) == 17, "Too many Keywords defined"
+assert len(Keyword) == 19, "Too many Keywords defined"
 KEYWORDS_BY_NAME: Dict[str, Keyword] = {
     keyword.name.lower(): keyword for keyword in Keyword
 }
 
 
 class TokenType(Enum):
-    KEYWORD = auto()        # Keywords are basically all used for statements except for the syscall keyword
-    IDENTIFIER = auto()     # identifiers for variables and functions
-    INT_LITERAL = auto()    # number literals
-    STRING_LITERAL = auto() # string literals
-    MANIPULATOR = auto()    # Things that manipulate values on the stack (consume or produce), except for drop
-    EOE = auto()            # End of expression
+    KEYWORD = auto()                    # Keywords are basically all used for statements except for the syscall keyword
+    IDENTIFIER = auto()                 # identifiers for variables and functions
+    INT_LITERAL = auto()                # number literals
+    STRING_LITERAL = auto()             # string literals
+    MANIPULATOR = auto()                # Things that manipulate values on the stack (consume or produce)
+    EOE = auto()                        # End of expression
+    PAREN_BLOCK_START = auto()          # Start of parenthesis block
+    PAREN_BLOCK_END = auto()            # End of parenthesis block
+    ARG_DELIMITER = auto()              # Argument delimiter
+    TYPE = auto()                       # Type name
 
-assert len(TokenType) == 6, "Too many TokenTypes defined"
+assert len(TokenType) == 10, "Too many TokenTypes defined"
 TOKENTYPE_BY_NAME: Dict[str, TokenType] = {
     TokenType.name.lower(): TokenType for TokenType in TokenType
 }
@@ -130,25 +137,29 @@ BINOP_PRECEDENCE: Dict[str, int] = {
     "less-equal": 10
 }
 
+class ExprType(Enum):
+    NONE = auto()
+    INTEGER = auto()
+    POINTER = auto()
+
+assert len(ExprType) == 3, "Too many ExprTypes defined"
+EXPRTYPE_BY_NAME: Dict[str, ExprType] = {
+    exprtype.name.lower(): exprtype for exprtype in ExprType
+}
 
 @dataclass
 class Token:
     type: TokenType
     text: str
     location: LocTuple
-    value: Optional[Union[int, str, Keyword, Manipulator]] = None
+    value: Optional[Union[int, str, Keyword, Manipulator, ExprType]] = None
 
     def __str__(self):
-        return f"{format_location(self.location)} {self.type.name} {self.text} {self.value}"
+        if isinstance(self.value, str):
 
-class ExprType(Enum):
-    NONE = auto()
-    ANY = auto()
-
-assert len(ExprType) == 2, "Too many ExprTypes defined"
-EXPRTYPE_BY_NAME: Dict[str, ExprType] = {
-    exprtype.name.lower(): exprtype for exprtype in ExprType
-}
+            return f"{format_location(self.location)} {self.type.name} {self.text.encode('utf-8')} {self.value.encode('utf-8')}"
+        else:
+            return f"{format_location(self.location)} {self.type.name} {self.text} {self.value}"
 
 # Statements don't have a type
 class Statement:
@@ -164,8 +175,8 @@ class Statement:
         raise NotImplementedError(f"Code generation has not been implemented for {type(self).__name__}")
 
 class Expression(Statement):
-    def __init__(self, token: Token, value: Union['Expression', int, str]):
-        super().__init__(token, ExprType.ANY) # TODO: Implement type checking
+    def __init__(self, token: Token, value: Union['Expression', int, str], type: ExprType):
+        super().__init__(token, type) # TODO: Implement type checking
         self.value = value
     
     def print(self, depth: int = 0):
@@ -187,7 +198,8 @@ class Expression(Statement):
 
 class IntLiteralExpr(Expression):
     def __init__(self, token: Token, value: int):
-        super().__init__(token, value)
+        super().__init__(token, value, ExprType.INTEGER)
+        self.type
 
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {format_location(self.token.location)} push int literal {self.value}\n")
@@ -195,7 +207,13 @@ class IntLiteralExpr(Expression):
 
 class StringLiteralExpr(Expression):
     def __init__(self, token: Token, value: str):
-        super().__init__(token, value)
+        super().__init__(token, value, ExprType.POINTER)
+
+    def print(self, depth: int = 0):
+        assert isinstance(self.value, str), "String literal value must be a string string"
+        print(f"{' ' * depth}String Literal")
+        print(f"{' ' * depth}Token: {self.token}")
+        print(f"{' ' * depth}Value: {self.value}")
 
     def codegen(self, sink: io.StringIO):
         assert isinstance(self.value, str), "String literal must be a string"
@@ -206,9 +224,9 @@ class StringLiteralExpr(Expression):
 
 
 class IdentRefExpr(Expression):
-    def __init__(self, token: Token, name: str, ident_type: IdentType):
-        super().__init__(token, name)
-        self.ident_type = ident_type
+    def __init__(self, token: Token, name: str, ident_kind: IdentType, type: ExprType):
+        super().__init__(token, name, type)
+        self.ident_kind = ident_kind
         
     
     def print(self, depth: int = 0):
@@ -217,12 +235,12 @@ class IdentRefExpr(Expression):
         print(f"{' ' * depth}Name: {self.value}")
 
     def codegen(self, sink: io.StringIO):
-        if self.ident_type == IdentType.VARIABLE:
+        if self.ident_kind == IdentType.VARIABLE:
             assert isinstance(self.value, str), "Variable name must be a string"
             sink.write(f"; {format_location(self.token.location)} get variable {self.value}\n")
             sink.write(f"mov rax, [rbp - {compiler_current_scope[self.value]}]\n")
             sink.write("push rax\n")
-        elif self.ident_type == IdentType.GLOBAL_VARIABLE:
+        elif self.ident_kind == IdentType.GLOBAL_VARIABLE:
             sink.write(f"; {format_location(self.token.location)} get global variable {self.value}\n")
             sink.write(f"mov rax, [{self.value}]\n")
             sink.write("push rax\n")
@@ -232,7 +250,7 @@ class IdentRefExpr(Expression):
 
 class BinaryExpr(Expression):
     def __init__(self, token: Token, left: Expression, right: Expression):
-        super().__init__(token, left)
+        super().__init__(token, left, ExprType.INTEGER)
         self.right = right
     
     def print(self, depth: int = 0):
@@ -347,8 +365,8 @@ class SyscallExpr(Expression):
         if calltype not in valid_syscalls:
             raise Exception(f"{calltype} is not a valid Syscall type")
         self.calltype = calltype
-        super().__init__(token, callnum)
-        self.type = ExprType.ANY
+        super().__init__(token, callnum, ExprType.INTEGER)
+        self.type = ExprType.INTEGER
         self.args = args
     
     def print(self, depth: int = 0):
@@ -359,12 +377,13 @@ class SyscallExpr(Expression):
             arg.print(depth + 4)
         
     def codegen(self, sink: io.StringIO):
-        sink.write("; System Call")
+        sink.write(f"; {self.token} System Call\n")
         for i, arg in enumerate(self.args):
             arg.codegen(sink)
             sink.write(f"pop {get_abi_reg_name(i)}\n")
         # mov rax last, as it's used to push/pop
-        sink.write(f"mov rax, {self.value}\n")
+        self.value.codegen(sink)
+        sink.write("pop rax\n")
         sink.write("syscall\n")
         sink.write("push rax\n")
 
@@ -387,7 +406,7 @@ class DropStmt(Statement):
 
 
 class VarDefStmt(Statement):
-    def __init__(self, token: Token, name: str, var_type: IdentType, type = ExprType.ANY,value = None):
+    def __init__(self, token: Token, name: str, var_type: IdentType, type: ExprType,value = None):
         super().__init__(token, type)
         self.name = name
         self.value = value
@@ -396,20 +415,92 @@ class VarDefStmt(Statement):
     def print(self, depth: int = 0):
         print(f"{' ' * depth}VarDefStmt: {self.name}")
         print(f"{' ' * depth}Value:")
-        self.value.print(depth + 4)
+        if self.value is None:
+            print(f"{' ' * depth}None")
+        else:
+            self.value.print(depth + 4)
     
     def codegen(self, sink: io.StringIO):
         assert len(IdentType) == 3, "Too many IdentTypes defined"
         if self.var_type == IdentType.GLOBAL_VARIABLE:  # TODO: evaluate global variables at compile time
-            sink.write(f"; {format_location(self.token.location)}: Variable Definition\n")
-            self.value.codegen(sink)
-            sink.write(f"pop rax\n")
-            sink.write(f"mov [{self.name}], rax\n")
+            if self.value is not None:
+                sink.write(f"; {format_location(self.token.location)}: Variable Definition\n")
+                self.value.codegen(sink)
+                sink.write(f"pop rax\n")
+                sink.write(f"mov [{self.name}], rax\n")
         elif self.var_type == IdentType.VARIABLE:
-            sink.write(f"; {format_location(self.token.location)}: Variable Definition\n")
-            self.value.codegen(sink)
-            sink.write(f"pop rax\n")
-            sink.write(f"mov [rbp - {compiler_current_scope[self.name]}], rax\n")
+            if self.value is not None:
+                sink.write(f"; {format_location(self.token.location)}: Variable Definition\n")
+                self.value.codegen(sink)
+                sink.write(f"pop rax\n")
+                sink.write(f"mov [rbp - {compiler_current_scope[self.name]}], rax\n")
+        else:
+            raise ValueError("Unexpected identifier type found")
+
+# TODO: maybe reimplement this correctly later on 
+class FunProto(Statement):
+    def __init__(self, token: Token, name: str, arguments: Dict[str, VarDefStmt], ret_type: ExprType):
+        super().__init__(token, ret_type)
+        self.name: str = name
+        self.arguments: Dict[str,VarDefStmt]  = arguments
+    
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}Function Prototype: {self.name}")
+        print(f"{' ' * depth}Parameters: {self.arguments if len(self.arguments) > 0 else 'None'}")
+
+class FunCallExpr(Expression):
+    def __init__(self, token: Token, target: IdentRefExpr, args: List[Expression]):
+        #if len(args) > 0:
+        #    raise ValueError(f"Function calls cannot have arguments yet")
+        
+        super().__init__(token, target, target.type)
+        self.args: List[Expression] = args
+
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}Function Call: {self.value.value}")
+        print(f"{' ' * depth}Parameters: {self.args if len(self.args) > 0 else 'None'}")
+    
+    def codegen(self, sink: io.StringIO):
+        sink.write(f"; {format_location(self.token.location)} Function Call\n")
+        
+        # push arguments in reverse order
+        
+        for arg in reversed(self.args):
+            arg.codegen(sink)
+
+        # tell the function where the stack variables are located
+        sink.write(f"mov rbx, rsp\n")
+        sink.write(f"call {self.value.value}\n")
+
+        # realign stack
+        sink.write(f"add rsp, {len(self.args) * 8}\n")
+
+        sink.write(f"push rax\n") # rax will hold the return value
+
+
+class VarSetStmt(Statement):
+    def __init__(self, token: Token, target: str, value):
+        super().__init__(token, ExprType.NONE)
+        self.target = target
+        self.value = value
+    
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}Set Variable: {self.name}")
+        print(f"{' ' * depth}Value:")
+        self.value.print(depth + 4)
+    
+    def codegen(self, sink: io.StringIO):
+        sink.write(f"; {format_location(self.token.location)} Set Variable {self.target}")
+        if self.var_type == IdentType.GLOBAL_VARIABLE:  # TODO: evaluate global variables at compile time
+            if self.value is not None:
+                self.value.codegen(sink)
+                sink.write(f"pop rax\n")
+                sink.write(f"mov [{self.name}], rax\n")
+        elif self.var_type == IdentType.VARIABLE:
+            if self.value is not None:
+                self.value.codegen(sink)
+                sink.write(f"pop rax\n")
+                sink.write(f"mov [rbp - {compiler_current_scope[self.name]}], rax\n")
         else:
             raise ValueError("Unexpected identifier type found")
 
@@ -431,20 +522,8 @@ class PrintStmt(Statement):
         sink.write(f"call print\n")
 
 
-# TODO: maybe reimplement this correctly later on 
-class FunProto(Statement):
-    def __init__(self, token: Token, name: str):
-        super().__init__(token)
-        self.name: str = name
-        self.arguments: Dict[str,VarDefStmt]  = {}
-    
-    def print(self, depth: int = 0):
-        print(f"{' ' * depth}Function Prototype: {self.name}")
-        print(f"{' ' * depth}Parameters: {self.arguments if len(self.arguments) > 0 else 'None'}")
-
-
 class FunStmt(Statement):
-    def __init__(self, proto: FunProto, block: List[Statement], scope: Dict[str, VarDefStmt], type = ExprType.ANY):
+    def __init__(self, proto: FunProto, block: List[Statement], scope: Dict[str, VarDefStmt], type: ExprType):
         super().__init__(proto.token, type)
         self.proto: FunProto = proto
         self.block: List[Statement] = block
@@ -467,7 +546,9 @@ class FunStmt(Statement):
                 expr.print(depth + 4)
     
     def codegen(self, sink: io.StringIO):
-        i = 0
+        i = 8
+        
+        # arguments have been inserted into the scope already
         for var_name in self.scope:
             # TODO: adjust size to variable type
             compiler_current_scope[var_name] = i
@@ -475,12 +556,23 @@ class FunStmt(Statement):
 
         sink.write(f"; Function Definition {self.proto.name}\n")
         sink.write(f"{self.proto.name}:\n")
-        sink.write(f"push rbp\n")
-        sink.write(f"mov rbp, rsp\n")
-        #make space for variables
+
+        sink.write("push rbp\n")
+        sink.write("mov rbp, rsp\n")
+
+        #make space for variables on stack (rbp)
         if len(self.scope) > 0:
-            sink.write(f"sub rsp, {len(self.scope) * 8}\n")
-            
+            sink.write(f"sub rsp, {len(self.scope) * 8 }\n")
+
+        # arguments are now on stack
+        # the stack grows downwards, meaning that the first argument is at the top of the stack, the second is at the top of the stack minus 8, etc.
+        # rbx contains the callee stack variables
+        # transfer arguments to local variables
+        for param in self.proto.arguments.values():
+            sink.write(f"mov rax, [rbx + {compiler_current_scope[param.name] - 8}]\n")
+            sink.write(f"mov [rbp - {compiler_current_scope[param.name]}], rax\n")
+
+        
         for stmt in self.block:
             stmt.codegen(sink)
 
@@ -551,21 +643,17 @@ class WhileStmt(ControlStmt):
         sink.write(f"jmp .while_cmp_{label_base}\n")
         sink.write(f".while_end_{label_base}:\n")
 
-
-class FunCallStmt(Statement):
-    def __init__(self, token: Token, target: str, args: List[Expression] = []):
-        if len(args) > 0:
-            raise ValueError(f"Function calls cannot have arguments yet")
-        
-        super().__init__(token)
-        self.target: str = target
-        self.args: List[Expression] = args
+class ReturnStmt(Statement):
+    def __init__(self, token: Token, value: Expression):
+        super().__init__(token, ExprType.NONE)
+        self.value = value
 
     def print(self, depth: int = 0):
-        print(f"{' ' * depth}Function Call: {self.target}")
-        print(f"{' ' * depth}Parameters: {self.args if len(self.args) > 0 else 'None'}")
+        print(f"{' ' * depth}Return Statement")
+        print(f"{' ' * depth}Value: {self.value}")
     
     def codegen(self, sink: io.StringIO):
-        sink.write(f"; {format_location(self.token.location)} Function Call\n")
-        sink.write(f"call {self.target}\n")
-
+        sink.write(f"; {format_location(self.token.location)} Return Statment\n")
+        self.value.codegen(sink)
+        sink.write("pop rax\n")
+        sink.write("jmp .end\n")

@@ -417,11 +417,9 @@ class ExpressionParser:
         self.__next_token()
         assert len(params) == 1, f"Expected 1 argument to print at {format_location(self.cur_tok.location)}"
 
-        assert isinstance(expr, Expression), "Expected expression after print keyword at %s" % (format_location(prev_tok.location))
-
         # move past the eoe
         #self.__next_token()
-        return PrintStmt(prev_tok, expr)
+        return PrintStmt(prev_tok, params[0])
 
     def parse_drop_statement(self) -> DropStmt:
         assert self.cur_tok is not None, "Unexpected EOF"

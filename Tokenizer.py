@@ -41,9 +41,9 @@ class Tokenizer:
             lines = f.readlines()
             for (line_number, line) in enumerate(lines):
                 self.line += 1
-                assert len(TokenType) == 10, "Too many TokenTypes defined at Tokenizer init"
-                assert len(Keyword) == 19, "Too many Keywords defined at Tokenizer init"
-                assert len(Manipulator) == 11, "Too many Manipulators defined at Tokenizer init"
+                assert len(TokenType) == 13, "Too many TokenTypes defined at Tokenizer init"
+                assert len(Keyword) == 14, "Too many Keywords defined at Tokenizer init"
+                assert len(Operator) == 11, "Too many Manipulators defined at Tokenizer init"
                 
                 char_pos = 0
                 while char_pos < len(line):
@@ -63,10 +63,16 @@ class Tokenizer:
                         char_pos += len(word)
                         if word in KEYWORDS_BY_NAME:
                             self.tokens.append(Token(TokenType.KEYWORD, word, (self.filename, self.line, self.column), KEYWORDS_BY_NAME[word]))
-                        elif word in MANIPULATOR_BY_NAME:
-                            self.tokens.append(Token(TokenType.MANIPULATOR, word, (self.filename, self.line, self.column), MANIPULATOR_BY_NAME[word]))
+                        elif word in OPERATOR_BY_NAME:
+                            self.tokens.append(Token(TokenType.OPERATOR, word, (self.filename, self.line, self.column), OPERATOR_BY_NAME[word]))
                         elif word in EXPRTYPE_BY_NAME:
                             self.tokens.append(Token(TokenType.TYPE, word, (self.filename, self.line, self.column), EXPRTYPE_BY_NAME[word]))
+                        elif word in SYSCALL_BY_NAME:
+                            self.tokens.append(Token(TokenType.SYSCALL, word, (self.filename, self.line, self.column), SYSCALL_BY_NAME[word]))
+                        elif word in LOADER_BY_NAME:
+                            self.tokens.append(Token(TokenType.LOADER, word, (self.filename, self.line, self.column), LOADER_BY_NAME[word]))
+                        elif word in STORER_BY_NAME:
+                            self.tokens.append(Token(TokenType.STORER, word, (self.filename, self.line, self.column), STORER_BY_NAME[word]))
                         else:
                             if '-' in word:
                                 raise Exception("Invalid identifier: " + word)

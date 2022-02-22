@@ -10,37 +10,45 @@ from JlangObjects import *
 from Tokenizer import Tokenizer
 
 class Program:
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, dump_ast: bool = False, dump_tokens: bool = False, dump_functions: bool = False, dump_globals: bool = False):
         self.filename: str = filename
         self.output_name: str = filename.replace(".j", ".asm")
         self.tokens: List[Token] = Tokenizer(filename).tokens
         self.parser: ExpressionParser = ExpressionParser(self.tokens)
+        self.dump_ast: bool = dump_ast
+        self.dump_tokens: bool = dump_tokens
+        self.dump_functions: bool = dump_functions
+        self.dump_globals: bool = dump_globals
 
     def generate_program(self):
+        if self.dump_tokens:
+            print("--------------------------------")
+            print("Tokens:\n")
+            for token in self.parser.tokens:
+                print(token)
+        
+
         AST = self.parser.parse_program()
         if AST is None:
             raise Exception("Failed to parse program")
 
-        #for token in self.parser.tokens:
-        #    print(token)
+        if self.dump_functions:
+            print("--------------------------------")
+            print("Function table:\n")
+            for proto in self.parser.prototypes.values():
+                print(proto.name)
 
-        print("--------------------------------")
-        print("Function table:\n")
-        for proto in self.parser.prototypes.values():
-            print(proto.name)
+        if self.dump_globals:
+            print("--------------------------------")
+            print("Global Variables:\n")
+            for var in self.parser.global_vars.values():
+                print(var.name)
 
-        print("--------------------------------")
-        print("Global Variables:\n")
-        for var in self.parser.global_vars.values():
-            print(var.name)
-
-
-
-        print("--------------------------------")
-        print("Generated AST:\n")
-
-        for expr in AST:
-            expr.print(0)
+        if self.dump_ast:
+            print("--------------------------------")
+            print("Generated AST:\n")
+            for expr in AST:
+                expr.print(0)
 
 
         if "main" not in self.parser.prototypes:
@@ -134,9 +142,16 @@ class Program:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: jlang.py <filename>")
+        print("Usage: jlang.py <filename> [--dump-ast] [--dump-tokens] [--dump-functions] [--dump-globals]")
         return
-    program = Program(sys.argv[1])
+
+    program = Program( \
+        sys.argv[1], \
+        "--dump-ast" in sys.argv, \
+        "--dump-tokens" in sys.argv, \
+        "--dump-functions" in sys.argv, \
+        "--dump-globals" in sys.argv \
+    )   
     program.generate_program()
 
 if __name__ == "__main__":

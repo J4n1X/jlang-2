@@ -65,7 +65,7 @@ class Keyword(Enum):
     # invokers are used to invoke functions or syscalls
     PRINT = auto()
     # other manipulators
-    ADDRESS_OF = auto() # get address of identifier
+    ADDRESS_OF = auto()  # get address of identifier
     DROP = auto()
     RETURN = auto()
 

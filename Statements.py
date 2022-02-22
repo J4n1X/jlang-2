@@ -271,9 +271,13 @@ class SyscallExpr(Expression):
         
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {self.token} System Call\n")
-        for i, arg in enumerate(self.args):
+        for arg in self.args:
             arg.codegen(sink)
+        
+        # retrieve the values from the stack
+        for i in reversed(range(len(self.args))):
             sink.write(f"pop {AsmInfo.get_abi_reg_name(i)}\n")
+
         # mov rax last, as it's used to push/pop
         self.value.codegen(sink)
         sink.write("pop rax\n")

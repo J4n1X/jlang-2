@@ -110,15 +110,15 @@ class Program:
             out.write("pop rdi\n")
             out.write("syscall\n")
 
-            if len(self.parser.string_literals) > 0:
+            if len(self.parser.global_const_vars) > 0:
                 out.write("\n\nsegment .data\n")
-                for index, s in enumerate(self.parser.string_literals):
+                for index, s in enumerate(self.parser.global_const_vars):
                     out.write("str_%d: db %s,0\n" % (index, ','.join(map(str, list(map(ord, s))))))
 
             if len(self.parser.global_vars) > 0:
                 out.write("\n\nsegment .bss\n")
-                for var in self.parser.global_vars:
-                    out.write(f"{var}: resb 8\n")
+                for var in self.parser.global_vars.values():
+                    out.write(f"{var.name}: resb {var.size}\n")
 
 
         print(f"Program successfully generated to {self.output_name}")

@@ -68,8 +68,10 @@ class Keyword(Enum):
     ADDRESS_OF = auto()  # get address of identifier
     DROP = auto()
     RETURN = auto()
+    ALLOCATE = auto() # allocate memory
 
-assert len(Keyword) == 14, "Too many Keywords defined"
+
+assert len(Keyword) == 15, "Too many Keywords defined"
 KEYWORDS_BY_NAME: Dict[str, Keyword] = {
     keyword.name.lower().replace("_", "-"): keyword for keyword in Keyword
 }
@@ -180,6 +182,12 @@ class ExprType(Enum):
 assert len(ExprType) == 3, "Too many ExprTypes defined"
 EXPRTYPE_BY_NAME: Dict[str, ExprType] = {
     exprtype.name.lower(): exprtype for exprtype in ExprType
+}
+
+SIZE_OF_EXPRTYPES: Dict[ExprType, int] = {
+    ExprType.NONE: 0,
+    ExprType.INTEGER: 8,
+    ExprType.POINTER: 8
 }
 
 @dataclass

@@ -8,12 +8,13 @@ from Statements import *
 class ExpressionParser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
-        self.string_literals: List[str] = []
+        self.global_const_vars: List[str] = []
         self.index = 0
         self.cur_tok: Optional[Token] = self.__next_token()
         self.prototypes: Dict[str, FunProto] = {}
         self.global_vars: Dict[str, VarDefStmt] = {}
         self.scope_vars: Dict[str, VarDefStmt] = {}
+        self.anonymous_scope_vars: List[VarDefStmt] = [] # variables without a name in the current scope
         self.in_scope: bool = False
 
 #region helper functions
@@ -78,7 +79,7 @@ class ExpressionParser:
             if self.cur_tok.type == TokenType.PAREN_BLOCK_END:
                 break
             elif self.cur_tok.type != TokenType.ARG_DELIMITER:
-                raise Exception(f"Expected ',' at {format_location(self.cur_tok.location)}")
+                raise Exception(f"Expected ',' at {format_location(self.cur_tok.location)}, but got {self.cur_tok.value}")
             self.__next_token()
         return args
 
@@ -157,6 +158,8 @@ class ExpressionParser:
             ret_expr = self.parse_loader_expression()
         elif self.cur_tok.type == TokenType.STORER:
             ret_expr = self.parse_storer_statement()
+        elif self.cur_tok.type == TokenType.TYPE:
+            ret_expr = self.parse_cast_expression()
         else:
             raise Exception(f"Unexpected token {self.cur_tok}")
         return ret_expr
@@ -177,7 +180,7 @@ class ExpressionParser:
         #    return expr
 
     def parse_keyword(self) -> Statement:
-        assert len(Keyword) == 14, "Too many keywords defined at ExpressionParser.parse_keyword"
+        assert len(Keyword) == 15, "Too many keywords defined at ExpressionParser.parse_keyword"
         assert self.cur_tok is not None, "Unexpected EOF"
         if self.cur_tok.value == Keyword.PRINT:
             return self.parse_print_statement()
@@ -195,6 +198,8 @@ class ExpressionParser:
             return self.parse_address_of_expression()
         elif self.cur_tok.value == Keyword.RETURN:
             return self.parse_return_statement()
+        elif self.cur_tok.value == Keyword.ALLOCATE:
+            return self.parse_allocate_expression()
         else: 
             raise Exception(f"Unexpected keyword {self.cur_tok}")
 
@@ -254,9 +259,16 @@ class ExpressionParser:
         print("Parsed function statement, ended at %s" % (format_location(self.cur_tok.location) if self.cur_tok is not None else "EOF"))
         self.in_scope = False 
 
-        fun = FunStmt(proto, block, self.scope_vars.copy(), proto.type)
+        scope: Dict[str, VarDefStmt] = {}
+        for var in self.scope_vars.values():
+            scope[var.name] = var
+        for anon_var in self.anonymous_scope_vars:
+            scope[anon_var.name] = anon_var
+
+        fun = FunStmt(proto, block, scope, proto.type)
 
         self.scope_vars.clear()
+        self.anonymous_scope_vars.clear()
         return fun
 
     # TODO: make it so we don't need to add a eoe token at the end
@@ -340,6 +352,7 @@ class ExpressionParser:
                 value = self.parse_statement()
                 if not isinstance(value, Expression):
                     raise ValueError(f"Expected expression after define keyword at {format_location(self.cur_tok.location)}")
+        value_size = SIZE_OF_EXPRTYPES[ident_var_type]
 
         # TODO: put these things in a seperate class or create a comparer function
         #if self.cur_tok.type != TokenType.EOE and \
@@ -356,17 +369,16 @@ class ExpressionParser:
                     # do not add to the list of global variables, as it is already there
                     # instead, make the global variable inaccessible and return a new parameter variable
                     if isparam:
-                        var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ident_var_type, value)
+                        var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ident_var_type, value_size, value)
                     else:
-                        var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE, ident_var_type, value)
+                        var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE, ident_var_type, value_size, value)
                 elif ident.var_type == IdentType.VARIABLE:
                     # the variable exists, modify it
                     assert False, "Redefinition of variable in 'define' not allowed"
-                    var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ExprType.ANY, value)
                 self.scope_vars[ident_name] = var_def
             else:
                 # the variable doesn't exist, define it, then add it to the scope
-                var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ident_var_type, value)
+                var_def = VarDefStmt(prev_tok, ident_name, IdentType.VARIABLE, ident_var_type, value_size, value)
                 self.scope_vars[ident_name] = var_def
         else: # global scope
             if ident is not None:
@@ -379,7 +391,7 @@ class ExpressionParser:
                     raise Exception(f"Attempted redefinition of Global variable {ident.value} at {format_location(self.cur_tok.location)}; Already defined at {format_location(ident.token.location)}")
             else:
                 # define a new global variable. It is mutable from the global scope
-                var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE,ident_var_type, value)
+                var_def = VarDefStmt(prev_tok, ident_name, IdentType.GLOBAL_VARIABLE,ident_var_type, value_size, value)
                 self.global_vars[ident_name] = var_def
         #self.__next_token() # eat identifier
         #if self.cur_tok.type != TokenType.EOE:
@@ -437,6 +449,11 @@ class ExpressionParser:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
         self.__next_token()
+
+        if self.cur_tok.type == TokenType.TYPE and self.cur_tok.value == ExprType.NONE:
+            self.__next_token()
+            return ReturnStmt(prev_tok, None)
+
         value = self.parse_statement()
         assert isinstance(value, Expression), f"Value of return must be an Expression at {format_location(prev_tok.location)}"
         return ReturnStmt(prev_tok, value)
@@ -460,6 +477,17 @@ class ExpressionParser:
 #endregion
 
 #region Expression-Parsers
+    def parse_cast_expression(self) -> Expression:
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+        self.__next_token()
+        
+        params = self.__get_call_args()
+        self.__next_token()
+        assert len(params) == 1, f"Expected 1 parameter for cast at {format_location(prev_tok.location)}"
+        params[0].type = prev_tok.value
+        return params[0]
+
     def parse_syscall_expression(self) -> SyscallExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
@@ -516,16 +544,39 @@ class ExpressionParser:
         self.__next_token()
         return retval
 
-    def parse_string_literal_expression(self) -> StringLiteralExpr:
+    def parse_string_literal_expression(self) -> ArrayRefExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
         assert isinstance(self.cur_tok.value, str), "Expected string literal at %s" % (format_location(self.cur_tok.location))
         # check if the string literal already exists
-        string_id = len(self.string_literals)
+        string_id = len(self.global_const_vars)
         string_ref = f"str_{string_id}"
-        self.string_literals.append(self.cur_tok.value)
-        retval = StringLiteralExpr(self.cur_tok, string_ref)
+        self.global_const_vars.append(self.cur_tok.value)
+        retval = ArrayRefExpr(self.cur_tok, string_ref)
         self.__next_token()
         return retval
+
+    def parse_allocate_expression(self) -> ArrayRefExpr:
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_token = self.cur_tok
+        self.__next_token()
+
+        params = self.__get_call_args()
+        self.__next_token()
+        assert len(params) == 1, f"Expected 1 parameter for allocate at {format_location(prev_token.location)}"
+        assert isinstance(params[0].value, int), f"Expected integer literal for size of allocate at {format_location(prev_token.location)}"
+        
+        # add it to the scope anonymous variables under a unique name
+        array_ref: str = ""
+        if self.in_scope:
+            array_ref = f"arr_{len(self.anonymous_scope_vars)}"
+            self.anonymous_scope_vars.append(VarDefStmt(prev_token, array_ref, IdentType.VARIABLE, ExprType.NONE, params[0].value))
+        else: 
+            array_ref = f"glob_arr_{len(self.global_vars)}"
+            self.global_vars[array_ref] = VarDefStmt(prev_token, array_ref, IdentType.GLOBAL_VARIABLE, ExprType.NONE, params[0].value)
+
+        return ArrayRefExpr(prev_token, array_ref)
+
+
 
     def parse_binary_expression(self, prec: int, LHS: Expression) -> Expression:
         assert self.cur_tok is not None, "Unexpected EOF"

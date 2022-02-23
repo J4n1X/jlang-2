@@ -17,9 +17,10 @@ class Statement:
         raise NotImplementedError(f"Code generation has not been implemented for {type(self).__name__}")
 
 class Expression(Statement):
-    def __init__(self, token: Token, value: Union['Expression', int, str], type: ExprType):
+    def __init__(self, token: Token, value: Union['Expression', int, str], type: ExprType, size: int = 8):
         super().__init__(token, type) # TODO: Implement type checking
         self.value = value
+        self.size = size
     
     def print(self, depth: int = 0):
         print(f"{' ' * depth}Expression Type: {self.type.name}")
@@ -50,21 +51,23 @@ class IntLiteralExpr(Expression):
         sink.write(f"; {format_location(self.token.location)} push int literal {self.value}\n")
         sink.write(f"push {self.value}\n")
 
-class StringLiteralExpr(Expression):
+class ArrayRefExpr(Expression):
     def __init__(self, token: Token, value: str):
         super().__init__(token, value, ExprType.POINTER)
 
     def print(self, depth: int = 0):
-        assert isinstance(self.value, str), "String literal value must be a string string"
+        assert isinstance(self.value, str), "Array literal value must be a string"
         print(f"{' ' * depth}String Literal")
         print(f"{' ' * depth}Token: {self.token}")
         print(f"{' ' * depth}Value: {self.value}")
 
     def codegen(self, sink: io.StringIO):
-        assert isinstance(self.value, str), "String literal must be a string"
-        formatted_str = self.value.replace('\n', '\\n')
-        sink.write(f"; {format_location(self.token.location)} push string literal {formatted_str}\n")
-        sink.write(f"mov rax, {self.value}\n")
+        sink.write(f"; {format_location(self.token.location)} push array ptr {self.value}\n")
+        if self.value in compiler_current_scope: # this must be a local anonymous variable
+            sink.write(f"lea rax, [rbp - {compiler_current_scope[self.value]}]\n")    
+        else:
+            assert isinstance(self.value, str), "String literal must be a string"
+            sink.write(f"mov rax, {self.value}\n")
         sink.write("push rax\n")
 
 class LoaderExpr(Expression):
@@ -306,11 +309,12 @@ class DropStmt(Statement):
 #region Variable and Memory Manipulation Statments
 
 class VarDefStmt(Statement):
-    def __init__(self, token: Token, name: str, var_type: IdentType, type: ExprType,value = None):
+    def __init__(self, token: Token, name: str, var_type: IdentType, type: ExprType, size: int, value = None):
         super().__init__(token, type)
         self.name = name
         self.value = value
         self.var_type = var_type
+        self.size = size
     
     def print(self, depth: int = 0):
         print(f"{' ' * depth}VarDefStmt: {self.name}")
@@ -441,9 +445,14 @@ class FunCallExpr(Expression):
         sink.write(f"call {self.value.value}\n")
 
         # realign stack
-        sink.write(f"add rsp, {len(self.args) * 8}\n")
+        args_size = 0
+        for arg in self.args:
+            args_size += arg.size
 
-        sink.write(f"push rax\n") # rax will hold the return value
+        sink.write(f"add rsp, {args_size}\n")
+
+        if self.type != ExprType.NONE:
+            sink.write(f"push rax\n")
 
 class PrintStmt(Statement):
     def __init__(self, token: Token, value: Expression):
@@ -488,13 +497,14 @@ class FunStmt(Statement):
                 expr.print(depth + 4)
     
     def codegen(self, sink: io.StringIO):
-        i = 8
-        
+        local_vars_size = 0
         # arguments have been inserted into the scope already
-        for var_name in self.scope:
+        for var in self.scope.values():
+            local_vars_size += var.size
+            print(f"{var.name} has {var.size}")
             # TODO: adjust size to variable type
-            compiler_current_scope[var_name] = i
-            i += 8
+            compiler_current_scope[var.name] = local_vars_size
+        print(f"{self.proto.name} has {local_vars_size}")
 
         sink.write(f"; Function Definition {self.proto.name}\n")
         sink.write(f"{self.proto.name}:\n")
@@ -504,7 +514,7 @@ class FunStmt(Statement):
 
         #make space for variables on stack (rbp)
         if len(self.scope) > 0:
-            sink.write(f"sub rsp, {len(self.scope) * 8 }\n")
+            sink.write(f"sub rsp, {local_vars_size }\n")
 
         # arguments are now on stack
         # the stack grows downwards, meaning that the first argument is at the top of the stack, the second is at the top of the stack minus 8, etc.
@@ -586,9 +596,13 @@ class WhileStmt(ControlStmt):
         sink.write(f".while_end_{label_base}:\n")
 
 class ReturnStmt(Statement):
-    def __init__(self, token: Token, value: Expression):
-        super().__init__(token, ExprType.NONE)
-        self.value = value
+    def __init__(self, token: Token, value: Optional[Expression]):
+        if value is None:
+            super().__init__(token, ExprType.NONE)
+            self.value = None
+        else:
+            super().__init__(token, value.type)
+            self.value = value
 
     def print(self, depth: int = 0):
         print(f"{' ' * depth}Return Statement")
@@ -596,8 +610,9 @@ class ReturnStmt(Statement):
     
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {format_location(self.token.location)} Return Statment\n")
-        self.value.codegen(sink)
-        sink.write("pop rax\n")
+        if self.value is not None:
+            self.value.codegen(sink)
+            sink.write("pop rax\n")
         sink.write("jmp .end\n")
 #endregion Control-Flow Statements
 

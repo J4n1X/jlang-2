@@ -42,7 +42,7 @@ class Tokenizer:
             for (line_number, line) in enumerate(lines):
                 self.line += 1
                 assert len(TokenType) == 13, "Too many TokenTypes defined at Tokenizer init"
-                assert len(Keyword) == 14, "Too many Keywords defined at Tokenizer init"
+                assert len(Keyword) == 15, "Too many Keywords defined at Tokenizer init"
                 assert len(Operator) == 11, "Too many Manipulators defined at Tokenizer init"
                 
                 char_pos = 0

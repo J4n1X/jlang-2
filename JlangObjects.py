@@ -1,10 +1,12 @@
 from typing import *
 from enum import Enum, auto
 from dataclasses import dataclass
+from unicodedata import name
 
 # tuple for position in file plus it's name
 # this is global
 compiler_current_scope: Dict[str, int] = {}
+
 LocTuple = Tuple[str, int, int]
 def format_location(loc: LocTuple) -> str:
         return f"{loc[0]}:{loc[1]}:{loc[2]}"
@@ -69,9 +71,11 @@ class Keyword(Enum):
     DROP = auto()
     RETURN = auto()
     ALLOCATE = auto() # allocate memory
+    IMPORT = auto()
+    CONSTANT = auto()
 
 
-assert len(Keyword) == 15, "Too many Keywords defined"
+assert len(Keyword) == 17, "Too many Keywords defined"
 KEYWORDS_BY_NAME: Dict[str, Keyword] = {
     keyword.name.lower().replace("_", "-"): keyword for keyword in Keyword
 }
@@ -99,10 +103,11 @@ TOKENTYPE_BY_NAME: Dict[str, TokenType] = {
 
 class IdentType(Enum):
     VARIABLE = auto()
-    GLOBAL_VARIABLE = auto()
+    GLOBAL_VARIABLE = auto(),
+    CONSTANT = auto()
     FUNCTION = auto()
 
-assert len(IdentType) == 3, "Too many IdentTypes defined"
+assert len(IdentType) == 4, "Too many IdentTypes defined"
 IDENTTYPE_BY_NAME: Dict[str, IdentType] = {
     IdentType.name.lower(): IdentType for IdentType in IdentType
 }
@@ -203,3 +208,10 @@ class Token:
             return f"{format_location(self.location)} {self.type.name} {self.text.encode('utf-8')} {self.value.encode('utf-8')}"
         else:
             return f"{format_location(self.location)} {self.type.name} {self.text} {self.value}"
+
+@dataclass
+class Constant:
+    token: Token
+    name: str
+    type: ExprType
+    value: Union[str, int]

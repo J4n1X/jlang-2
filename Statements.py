@@ -104,8 +104,9 @@ class IdentRefExpr(Expression):
         
     
     def print(self, depth: int = 0):
-        print(f"{' ' * depth}Identifier Reference Type: {self.type.name}")
+        print(f"{' ' * depth}Identifier Reference Type: {self.type}")
         print(f"{' ' * depth}Token: {self.token}")
+        print(f"{' ' * depth}Identifier Kind: {self.ident_kind}")
         print(f"{' ' * depth}Name: {self.value}")
 
     def codegen(self, sink: io.StringIO):
@@ -116,7 +117,11 @@ class IdentRefExpr(Expression):
             sink.write("push rax\n")
         elif self.ident_kind == IdentType.GLOBAL_VARIABLE:
             sink.write(f"; {format_location(self.token.location)} get global variable {self.value}\n")
-            sink.write(f"mov rax, [{self.value}]\n")
+            sink.write(f"mov rax, QWORD [{self.value}]\n")
+            sink.write("push rax\n")
+        elif self.ident_kind == IdentType.CONSTANT:
+            sink.write(f"; {format_location(self.token.location)} get constant {self.value}\n")
+            sink.write(f"mov rax, QWORD [{self.value}]\n")
             sink.write("push rax\n")
         else:
             raise ValueError(f"Invalid Identifier found for {self.value}")
@@ -138,6 +143,8 @@ class AddressOfExpr(Expression):
         if self.value.ident_kind == IdentType.VARIABLE:
             sink.write(f"lea rax, [rbp - {compiler_current_scope[self.value.value]}]\n")
         elif self.value.ident_kind == IdentType.GLOBAL_VARIABLE:
+            sink.write(f"mov rax, {self.value.value}\n") # value is name
+        elif self.value.ident_kind == IdentType.CONSTANT: 
             sink.write(f"mov rax, {self.value.value}\n") # value is name
         else:
             raise ValueError(f"Invalid Identifier found for {self.value.value}")
@@ -287,6 +294,17 @@ class SyscallExpr(Expression):
         sink.write("syscall\n")
         sink.write("push rax\n")
 
+class ConstantExpr(Expression):
+    def __init__(self, token: Token, value: Union[str, int], type: ExprType):
+        super().__init__(token, value, type)
+    
+    def print(self, depth: int = 0):
+        print(f"{' ' * depth}Constant: {self.value}")
+    
+    def codegen(self, sink: io.StringIO):
+        sink.write(f"; {self.token} Constant\n")
+        sink.write(f"push {self.value}\n")
+
 #endregion
 
 #region Statements
@@ -325,7 +343,7 @@ class VarDefStmt(Statement):
             self.value.print(depth + 4)
     
     def codegen(self, sink: io.StringIO):
-        assert len(IdentType) == 3, "Too many IdentTypes defined"
+        assert len(IdentType) == 4, "Too many IdentTypes defined"
         if self.var_type == IdentType.GLOBAL_VARIABLE:  # TODO: evaluate global variables at compile time
             if self.value is not None:
                 sink.write(f"; {format_location(self.token.location)}: Variable Definition\n")
@@ -501,10 +519,8 @@ class FunStmt(Statement):
         # arguments have been inserted into the scope already
         for var in self.scope.values():
             local_vars_size += var.size
-            print(f"{var.name} has {var.size}")
             # TODO: adjust size to variable type
             compiler_current_scope[var.name] = local_vars_size
-        print(f"{self.proto.name} has {local_vars_size}")
 
         sink.write(f"; Function Definition {self.proto.name}\n")
         sink.write(f"{self.proto.name}:\n")
@@ -606,7 +622,8 @@ class ReturnStmt(Statement):
 
     def print(self, depth: int = 0):
         print(f"{' ' * depth}Return Statement")
-        print(f"{' ' * depth}Value: {self.value.print()}")
+        if self.value is not None:
+            print(f"{' ' * depth}Value: {self.value.print()}")
     
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {format_location(self.token.location)} Return Statment\n")

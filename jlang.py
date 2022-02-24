@@ -113,7 +113,11 @@ class Program:
             if len(self.parser.global_const_vars) > 0:
                 out.write("\n\nsegment .data\n")
                 for index, s in enumerate(self.parser.global_const_vars):
-                    out.write("str_%d: db %s,0\n" % (index, ','.join(map(str, list(map(ord, s))))))
+                    out.write("_anon_str_%d: db %s,0\n" % (index, ','.join(map(str, list(map(ord, s))))))
+            
+            if len(self.parser.constants) > 0:
+                for const in self.parser.constants.values():
+                    out.write(f"{const.name}: dq {const.value}\n")
 
             if len(self.parser.global_vars) > 0:
                 out.write("\n\nsegment .bss\n")

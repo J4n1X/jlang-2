@@ -2,8 +2,11 @@ from ast import expr
 from pickle import TRUE
 from typing import *
 
+from pymysql import Binary
+
 from JlangObjects import *
 from Statements import *
+from Tokenizer import Tokenizer
 
 class ExpressionParser:
     def __init__(self, tokens: List[Token]):
@@ -12,11 +15,15 @@ class ExpressionParser:
         self.index = 0
         self.cur_tok: Optional[Token] = self.__next_token()
         self.prototypes: Dict[str, FunProto] = {}
+        self.constants: Dict[str, Constant] = {}
         self.global_vars: Dict[str, VarDefStmt] = {}
         self.scope_vars: Dict[str, VarDefStmt] = {}
         self.anonymous_scope_vars: List[VarDefStmt] = [] # variables without a name in the current scope
         self.in_scope: bool = False
 
+    def __insert_tokens(self, tokens: List[Token]):
+        #insert the tokens at the current index
+        self.tokens = self.tokens[:self.index] + tokens + self.tokens[self.index:]
 #region helper functions
 
     def __next_token(self) -> Optional[Token]:
@@ -85,7 +92,7 @@ class ExpressionParser:
 
     # get a reference object for the current identifier token
     def __get_ident_ref(self) -> Optional[IdentRefExpr]:
-        assert len(IdentType) == 3, "Too many IdentTypes defined at ExpressionParser.parse_identifier_expression"
+        assert len(IdentType) == 4, "Too many IdentTypes defined at ExpressionParser.parse_identifier_expression"
         assert self.cur_tok is not None, "Unexpected EOF"
         assert isinstance(self.cur_tok.value, str), "Expected string value for identifier"
         if self.cur_tok is None:
@@ -99,12 +106,15 @@ class ExpressionParser:
         elif self.cur_tok.value in self.global_vars:
             type = self.global_vars[self.cur_tok.value].type
             return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.GLOBAL_VARIABLE, type)
+        elif self.cur_tok.value in self.constants:
+            type = self.constants[self.cur_tok.value].type
+            return IdentRefExpr(self.cur_tok, self.cur_tok.value, IdentType.CONSTANT, type)
         else:
             return None
     
     # get a mutable reference to the current identifier token
     def __get_ident_def(self):
-        assert len(IdentType) == 3, "Too many IdentTypes defined at ExpressionParser.parse_identifier_expression"
+        assert len(IdentType) == 4, "Too many IdentTypes defined at ExpressionParser.parse_identifier_expression"
         if self.cur_tok.value in self.prototypes:
             raise Exception(f"Cannot get mutable identifiers for functions at {self.cur_tok.value} at {format_location(self.cur_tok.location)}")
         elif self.cur_tok.value in self.scope_vars:
@@ -114,6 +124,16 @@ class ExpressionParser:
         else:
             return None
 
+    # return the value if the current token is a constant or a literal
+    def __resolve_if_constant(self, expr: Expression) -> Union[int, str]:
+        if isinstance(expr, IntLiteralExpr):
+            return expr.value
+        elif isinstance(expr, ArrayRefExpr):
+            return expr.value
+        elif isinstance(expr, IdentRefExpr) and expr.ident_kind == IdentType.CONSTANT:
+            return self.constants[expr.value].value
+        else:
+            raise ValueError(f"Expected constant or literal expression but got {expr.token}")
 #endregion
 
     def parse_top_level(self) -> Optional[Statement]:
@@ -124,12 +144,24 @@ class ExpressionParser:
             self.__next_token()
             return self.parse_top_level()
         elif self.cur_tok.type == TokenType.KEYWORD:
-            if self.cur_tok.value == Keyword.FUNCTION:
+            assert len(Keyword) == 17, "Invalid amount of keywords defined at ExpressionParser.parse_top_level"
+            if self.cur_tok.value == Keyword.CONSTANT:
+                self.parse_const_def()
+                return self.parse_top_level()
+            elif self.cur_tok.value == Keyword.FUNCTION:
                 return self.parse_function_statement()
             elif self.cur_tok.value == Keyword.DEFINE:
-                self.parse_var_def_statement() 
+                self.parse_var_def_statement()
                 # we've added it to the global scope, so we can parse the next statement
                 return self.parse_top_level()
+            elif self.cur_tok.value == Keyword.IMPORT:
+                self.__next_token()
+                assert isinstance(self.cur_tok.value, str), "Expected string value for import"
+                self.__insert_tokens(Tokenizer(self.cur_tok.value).tokens)
+                self.__next_token()
+                return self.parse_top_level()
+
+                
         raise Exception(f"Unexpected keyword {self.cur_tok.value} on top level {self.cur_tok}")
 
 
@@ -180,7 +212,7 @@ class ExpressionParser:
         #    return expr
 
     def parse_keyword(self) -> Statement:
-        assert len(Keyword) == 15, "Too many keywords defined at ExpressionParser.parse_keyword"
+        assert len(Keyword) == 17, "Too many keywords defined at ExpressionParser.parse_keyword"
         assert self.cur_tok is not None, "Unexpected EOF"
         if self.cur_tok.value == Keyword.PRINT:
             return self.parse_print_statement()
@@ -256,7 +288,6 @@ class ExpressionParser:
         self.in_scope = True
         block = self.__get_block(Keyword.IS, Keyword.DONE)
         self.__next_token() # eat 'done'
-        print("Parsed function statement, ended at %s" % (format_location(self.cur_tok.location) if self.cur_tok is not None else "EOF"))
         self.in_scope = False 
 
         scope: Dict[str, VarDefStmt] = {}
@@ -274,7 +305,6 @@ class ExpressionParser:
     # TODO: make it so we don't need to add a eoe token at the end
     def parse_control_statement(self, type: Keyword):
         assert self.cur_tok is not None, "Unexpected EOF"
-        print("Parsing control at ", self.cur_tok)
         control_name = type.name.lower()
         if not self.in_scope:
             raise Exception(f"{control_name} statement at {format_location(self.cur_tok.location)} cannot be at top level {self.cur_tok}")
@@ -288,7 +318,6 @@ class ExpressionParser:
             raise Exception(f"Expected expression after {control_name} keyword")
         expr_block = self.__get_block(Keyword.DO, Keyword.DONE)
         self.__next_token() # eat the done keyword
-        print(f"After control {self.cur_tok}")
 
         if type == Keyword.IF:
             return IfStmt(prev_tok, cond_expr, expr_block)
@@ -399,7 +428,7 @@ class ExpressionParser:
         
         return var_def
 
-    def parse_var_set_statement(self):
+    def parse_var_set_statement(self) -> VarSetStmt:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
         ident = self.__get_ident_def()
@@ -416,9 +445,30 @@ class ExpressionParser:
         value = self.parse_statement()
         assert isinstance(value, Expression), f"Expected expression after 'is' at {format_location(self.cur_tok.location)}"
 
-        print(f"After varset {self.cur_tok}")
-
         return VarSetStmt(prev_tok, ident.name, ident.var_type, value)
+
+    def parse_const_def(self):
+        assert self.cur_tok is not None, "Unexpected EOF"
+        prev_tok = self.cur_tok
+        self.__next_token() # eat 'constant' keyword
+        assert self.cur_tok.type == TokenType.IDENTIFIER, f"Expected identifier after 'constant' at {format_location(self.cur_tok.location)}"
+        const_name = self.cur_tok.value
+        self.__next_token() # eat identifier
+        assert self.cur_tok.type == TokenType.KEYWORD and self.cur_tok.value == Keyword.AS, f"Expected 'as' after identifier at {format_location(self.cur_tok.location)}"
+        self.__next_token() # eat 'as' keyword
+        assert self.cur_tok.type == TokenType.TYPE, f"Expected type after 'as' at {format_location(self.cur_tok.location)}"
+        const_var_type = self.cur_tok.value
+        self.__next_token() # eat type
+        assert self.cur_tok.type == TokenType.KEYWORD and self.cur_tok.value == Keyword.IS, f"Expected 'is' after type at {format_location(self.cur_tok.location)}"
+        self.__next_token() # eat 'is' keyword
+        expr = self.parse_statement()
+        assert isinstance(expr, BinaryExpr) or \
+               isinstance(expr, IntLiteralExpr) or \
+               isinstance(expr, ArrayRefExpr), f"Expected expression after 'is' at {format_location(self.cur_tok.location)}"
+        const_val = self.eval_expression(expr)
+        self.constants[const_name] = Constant(prev_tok, const_name, const_var_type, const_val)
+        
+        
 
     def parse_print_statement(self) -> PrintStmt:
         assert self.cur_tok is not None, "Unexpected EOF"
@@ -549,7 +599,7 @@ class ExpressionParser:
         assert isinstance(self.cur_tok.value, str), "Expected string literal at %s" % (format_location(self.cur_tok.location))
         # check if the string literal already exists
         string_id = len(self.global_const_vars)
-        string_ref = f"str_{string_id}"
+        string_ref = f"_anon_str_{string_id}"
         self.global_const_vars.append(self.cur_tok.value)
         retval = ArrayRefExpr(self.cur_tok, string_ref)
         self.__next_token()
@@ -563,23 +613,24 @@ class ExpressionParser:
         params = self.__get_call_args()
         self.__next_token()
         assert len(params) == 1, f"Expected 1 parameter for allocate at {format_location(prev_token.location)}"
-        assert isinstance(params[0].value, int), f"Expected integer literal for size of allocate at {format_location(prev_token.location)}"
         
+        ident_val = self.__resolve_if_constant(params[0])
         # add it to the scope anonymous variables under a unique name
         array_ref: str = ""
         if self.in_scope:
             array_ref = f"arr_{len(self.anonymous_scope_vars)}"
-            self.anonymous_scope_vars.append(VarDefStmt(prev_token, array_ref, IdentType.VARIABLE, ExprType.NONE, params[0].value))
+            self.anonymous_scope_vars.append(VarDefStmt(prev_token, array_ref, IdentType.VARIABLE, ExprType.NONE, ident_val))
         else: 
             array_ref = f"glob_arr_{len(self.global_vars)}"
-            self.global_vars[array_ref] = VarDefStmt(prev_token, array_ref, IdentType.GLOBAL_VARIABLE, ExprType.NONE, params[0].value)
+            self.global_vars[array_ref] = VarDefStmt(prev_token, array_ref, IdentType.GLOBAL_VARIABLE, ExprType.NONE, ident_val)
 
         return ArrayRefExpr(prev_token, array_ref)
 
 
 
     def parse_binary_expression(self, prec: int, LHS: Expression) -> Expression:
-        assert self.cur_tok is not None, "Unexpected EOF"
+        if self.cur_tok is None:
+            return LHS
         while self.cur_tok.type == TokenType.OPERATOR:
             tok_prec = self.__get_precedence()
             if tok_prec < prec: # if we're done with the binary expression
@@ -620,12 +671,49 @@ class ExpressionParser:
         assert len(params) == 1, f"Expected 1 parameter for AddressOf at {format_location(prev_tok.location)}"
         assert isinstance(params[0], IdentRefExpr), f"Expected identifier after address of at {format_location(prev_tok.location)}"
         assert params[0].ident_kind == IdentType.VARIABLE or \
-               params[0].ident_kind == IdentType.GLOBAL_VARIABLE, \
+               params[0].ident_kind == IdentType.GLOBAL_VARIABLE or \
+               params[0].ident_kind == IdentType.CONSTANT, \
                f"Expected variable after address of at {format_location(prev_tok.location)}"
 
         return AddressOfExpr(prev_tok, params[0])
 #endregion
 
+#region const evaluator
+
+    def eval_expression(self, expr: Expression) -> Union[str,int]:
+        if isinstance(expr, IntLiteralExpr):
+            return self.eval_integer_literal_expr(expr)
+        elif isinstance(expr, IdentRefExpr):
+            return self.deref_ident(expr)
+        elif isinstance(expr, ArrayRefExpr):
+            return self.eval_string_literal(expr)
+        elif isinstance(expr, BinaryExpr):
+            return self.eval_binary_expr(expr)
+    
+    def eval_binary_expr(self, expr: BinaryExpr) -> int:
+        LHS = self.eval_expression(expr.value)
+        assert isinstance(LHS, int), "Expected integer literal on LHS of BinaryExpr"
+        RHS = self.eval_expression(expr.right)
+        assert isinstance(RHS, int), "Expected integer literal on RHS of BinaryExpr"
+        return LHS + RHS
+        
+
+    def eval_integer_literal_expr(self, expr: IntLiteralExpr) -> int:
+        return expr.value
+
+    # get the pointer name to the string literal
+    def eval_string_literal(self, literal: ArrayRefExpr) -> str:
+        assert isinstance(literal.value, str), "Expected string literal pointer name to be a string"
+        return literal.value
+
+
+    def deref_ident(self, ident_ref: IdentRefExpr) -> Union[str, int]:
+        ident_ref.print()
+        assert ident_ref.ident_kind == IdentType.CONSTANT, f"Expected constant identifier at {format_location(ident_ref.token.location)}"
+        assert ident_ref.value in self.constants, f"Identifier not defined as constant at {format_location(ident_ref.token.location)}"
+        return self.constants[ident_ref.value].value
+
+#endregion
 
 
     def parse_program(self) -> List[Statement]:

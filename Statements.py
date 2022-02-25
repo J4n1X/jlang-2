@@ -17,10 +17,14 @@ class Statement:
         raise NotImplementedError(f"Code generation has not been implemented for {type(self).__name__}")
 
 class Expression(Statement):
-    def __init__(self, token: Token, value: Union['Expression', int, str], type: ExprType, size: int = 8):
+    def __init__(self, token: Token, value: Union['Expression', int, str, List['Expression']], type: ExprType, size: Optional[int] = None):
         super().__init__(token, type) # TODO: Implement type checking
         self.value = value
-        self.size = size
+        if size is None:
+            # get it from the type
+            self.size = SIZE_OF_EXPRTYPES[type]
+        else:
+            self.size = size
     
     def print(self, depth: int = 0):
         print(f"{' ' * depth}Expression Type: {self.type.name}")
@@ -82,10 +86,10 @@ class LoaderExpr(Expression):
     
     def codegen(self, sink: io.StringIO):
         loader_type = self.token.value
-        assert isinstance(loader_type, Loader), "Expected Loader type"
+        assert isinstance(loader_type, Intrinsic), "Expected Loader type to be Intrinsic"
         
-        sized_keyword = AsmInfo.mem_size_keywords[loader_type.value]
-        sized_register = AsmInfo.registers["rax"][loader_type.value]
+        sized_keyword = AsmInfo.mem_size_keywords[Intrinsic.get_sized_index(loader_type)]
+        sized_register = AsmInfo.registers["rax"][Intrinsic.get_sized_index(loader_type)]
 
         sink.write(f"; {format_location(self.token.location)} Loader {self.token.value}\n")
         self.value.codegen(sink)
@@ -263,33 +267,43 @@ class BinaryExpr(Expression):
         else:
             raise ValueError(f"Unknown binary operator {self.token.value} at {format_location(self.token.location)}")
 
-class SyscallExpr(Expression): 
-    def __init__(self, token: Token, calltype: Keyword, callnum: int, args: List[Expression] = []):
+class CallExpr(Expression):
+    def __init__(self, token: Token, args: List[Expression], target_type: ExprType):
+        super().__init__(token, args, target_type)
+    
+    def print(self, indent: int = 0):
+        print(f"{' ' * indent}Call Expression")
+        self.target.print(indent + 2)
+        for arg in self.value:
+            arg.print(indent + 2)
+
+class SyscallExpr(CallExpr): 
+    def __init__(self, token: Token, calltype: Keyword, callnum: Expression, args: List[Expression] = []):
         if calltype not in Syscall:
             raise Exception(f"{calltype} is not a valid Syscall type")
+        
+        super().__init__(token, args, ExprType.INTEGER)
         self.calltype = calltype
-        super().__init__(token, callnum, ExprType.INTEGER)
-        self.type = ExprType.INTEGER
-        self.args = args
+        self.callnum = callnum
     
     def print(self, depth: int = 0):
         print(f"{' ' * depth}System Call: {self.calltype}")
         print(f"{' ' * depth}Call Number: {self.value}")
         print(f"{' ' * depth}Arguments:")
-        for arg in self.args:
+        for arg in self.value:
             arg.print(depth + 4)
         
     def codegen(self, sink: io.StringIO):
         sink.write(f"; {self.token} System Call\n")
-        for arg in self.args:
+        for arg in self.value:
             arg.codegen(sink)
         
         # retrieve the values from the stack
-        for i in reversed(range(len(self.args))):
+        for i in reversed(range(len(self.value))):
             sink.write(f"pop {AsmInfo.get_abi_reg_name(i)}\n")
 
         # mov rax last, as it's used to push/pop
-        self.value.codegen(sink)
+        self.callnum.codegen(sink)
         sink.write("pop rax\n")
         sink.write("syscall\n")
         sink.write("push rax\n")
@@ -401,10 +415,10 @@ class StorerStmt(Statement):
 
     def codegen(self, sink: io.StringIO):
         storer_type = self.token.value
-        assert isinstance(storer_type, Storer), "Expected Storer type"
+        assert isinstance(storer_type, Intrinsic), "Expected Storer type to be Intrinsic"
         
-        sized_keyword = AsmInfo.mem_size_keywords[storer_type.value]
-        sized_register = AsmInfo.registers["rax"][storer_type.value]
+        sized_keyword = AsmInfo.mem_size_keywords[Intrinsic.get_sized_index(storer_type)]
+        sized_register = AsmInfo.registers["rax"][Intrinsic.get_sized_index(storer_type)]
                 
         sink.write(f"; {format_location(self.token.location)} Storer Statement\n")
         self.target.codegen(sink)
@@ -421,31 +435,31 @@ class FunProto(Statement):
     def __init__(self, token: Token, name: str, arguments: Dict[str, VarDefStmt], ret_type: ExprType):
         super().__init__(token, ret_type)
         self.name: str = name
-        self.arguments: Dict[str,VarDefStmt]  = arguments
+        self.args: Dict[str,VarDefStmt]  = arguments
     
     def print(self, depth: int = 0):
         print(f"{' ' * depth}Function Prototype: {self.name}")
         print(f"{' ' * depth}Parameters:")
-        if len(self.arguments) > 0:
-            for argument in self.arguments.values():
+        if len(self.args) > 0:
+            for argument in self.args.values():
                 argument.print(depth + 4)
         else:
             print(f"{' ' * depth + 4}None")
             
 
-class FunCallExpr(Expression):
+class FunCallExpr(CallExpr):
     def __init__(self, token: Token, target: IdentRefExpr, args: List[Expression]):
         #if len(args) > 0:
         #    raise ValueError(f"Function calls cannot have arguments yet")
         
-        super().__init__(token, target, target.type)
-        self.args: List[Expression] = args
+        super().__init__(token, args, target.type)
+        self.target = target
 
     def print(self, depth: int = 0):
-        print(f"{' ' * depth}Function Call: {self.value.value}")
+        print(f"{' ' * depth}Function Call: {self.target.value}")
         print(f"{' ' * depth}Parameters:")
-        if len(self.args) > 0:
-            for arg in self.args:
+        if len(self.value) > 0:
+            for arg in self.value:
                 arg.print(depth + 4)
         else:
             print(f"{' ' * depth + 4}None")
@@ -455,16 +469,16 @@ class FunCallExpr(Expression):
         
         # push arguments in reverse order
         
-        for arg in reversed(self.args):
+        for arg in reversed(self.value):
             arg.codegen(sink)
 
         # tell the function where the stack variables are located
         sink.write(f"mov rbx, rsp\n")
-        sink.write(f"call {self.value.value}\n")
+        sink.write(f"call {self.target.value}\n")
 
         # realign stack
         args_size = 0
-        for arg in self.args:
+        for arg in self.value:
             args_size += arg.size
 
         sink.write(f"add rsp, {args_size}\n")
@@ -475,16 +489,16 @@ class FunCallExpr(Expression):
 class PrintStmt(Statement):
     def __init__(self, token: Token, value: Expression):
         super().__init__(token, ExprType.NONE)
-        self.value = value
+        self.expr = value
 
     def print(self, depth: int = 0):
         print(f"Token: {self.token.value}")
         print(f"Type: {self.type}")
         print(f"Value:")
-        self.value.print(depth + 4)
+        self.expr.print(depth + 4)
 
     def codegen(self, sink: io.StringIO):
-        self.value.codegen(sink)
+        self.expr.codegen(sink)
         sink.write(f"; {format_location(self.token.location)} Print \n")
         sink.write(f"pop rdi\n")
         sink.write(f"call print\n")
@@ -536,7 +550,7 @@ class FunStmt(Statement):
         # the stack grows downwards, meaning that the first argument is at the top of the stack, the second is at the top of the stack minus 8, etc.
         # rbx contains the callee stack variables
         # transfer arguments to local variables
-        for param in self.proto.arguments.values():
+        for param in self.proto.args.values():
             sink.write(f"mov rax, [rbx + {compiler_current_scope[param.name] - 8}]\n")
             sink.write(f"mov [rbp - {compiler_current_scope[param.name]}], rax\n")
 

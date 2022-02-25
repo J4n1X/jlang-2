@@ -15,25 +15,25 @@ done
 
 ; returns dest if successful, 0 if not
 function memcpy(dest as pointer, src as pointer, size as integer) yields pointer is
-    if dest equal 0 do return 0 done
-    if src equal 0 do return 0 done
+    if dest equal pointer(0) do return 0 done
+    if src equal pointer(0) do return 0 done
     if size equal 0 do return dest done
 
     define i as integer is 0
     while i less size do
-        store8(dest plus pointer(i), load8(src plus pointer(i)))
+        store8(ptr_plus(dest, i), load8(src plus pointer(i)))
         i is i plus 1
     done
     return dest
 done
 
 function memset(dest as pointer, value as integer, size as integer) yields pointer is
-    if dest equal 0 do return 0 done
+    if dest equal pointer(0) do return 0 done
     if size equal 0 do return dest done
 
     define i as integer is 0
     while i less size do
-        store8(dest plus pointer(i), value)
+        store8(ptr_plus(dest, i), value)
         i is i plus 1
     done
     return dest
@@ -41,7 +41,7 @@ done
 
 constant newline as integer is 10
 function strlen(str as pointer) yields integer is
-    if str equal 0 do return 0 done
+    if str equal pointer(0) do return 0 done
 
     define i as integer is 0
     while load8(str plus pointer(i)) not-equal 0 do
@@ -53,7 +53,7 @@ function strlen(str as pointer) yields integer is
 done
 
 function fputs(fd as integer, str as pointer) yields none is
-    if str equal 0 do return none done
+    if str equal pointer(0) do return none done
     drop syscall3(SYS_write, fd, str, strlen(str))
 done
 

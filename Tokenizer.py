@@ -41,9 +41,10 @@ class Tokenizer:
             lines = f.readlines()
             for (line_number, line) in enumerate(lines):
                 self.line += 1
-                assert len(TokenType) == 13, "Too many TokenTypes defined at Tokenizer init"
-                assert len(Keyword) == 17, "Too many Keywords defined at Tokenizer init"
+                assert len(TokenType) == 12 , "Too many TokenTypes defined at Tokenizer init"
+                assert len(Keyword) == 14, "Too many Keywords defined at Tokenizer init"
                 assert len(Operator) == 11, "Too many Manipulators defined at Tokenizer init"
+                assert len(Intrinsic) == 11, "Too many Intrinsics defined at Tokenizer init"
                 
                 char_pos = 0
                 while char_pos < len(line):
@@ -69,10 +70,8 @@ class Tokenizer:
                             self.tokens.append(Token(TokenType.TYPE, word, (self.filename, self.line, self.column), EXPRTYPE_BY_NAME[word]))
                         elif word in SYSCALL_BY_NAME:
                             self.tokens.append(Token(TokenType.SYSCALL, word, (self.filename, self.line, self.column), SYSCALL_BY_NAME[word]))
-                        elif word in LOADER_BY_NAME:
-                            self.tokens.append(Token(TokenType.LOADER, word, (self.filename, self.line, self.column), LOADER_BY_NAME[word]))
-                        elif word in STORER_BY_NAME:
-                            self.tokens.append(Token(TokenType.STORER, word, (self.filename, self.line, self.column), STORER_BY_NAME[word]))
+                        elif word in INTRINSIC_BY_NAME:
+                            self.tokens.append(Token(TokenType.INTRINSIC, word, (self.filename, self.line, self.column), INTRINSIC_BY_NAME[word]))
                         else:
                             if '-' in word:
                                 raise Exception("Invalid identifier: " + word)

@@ -57,6 +57,8 @@ class Keyword(Enum):
     # designators are used for the definition of variables and functions
     FUNCTION = auto()
     DEFINE = auto()
+    ALLOCATE = auto() # allocate memory
+    CONSTANT = auto()
     # particles are used for the grammar to recognize the end of a grammar block
     DO = auto()
     IS = auto()
@@ -64,18 +66,12 @@ class Keyword(Enum):
     TO = auto()
     YIELDS = auto()
     DONE = auto()
-    # invokers are used to invoke functions or syscalls
-    PRINT = auto()
-    # other manipulators
-    ADDRESS_OF = auto()  # get address of identifier
-    DROP = auto()
     RETURN = auto()
-    ALLOCATE = auto() # allocate memory
+    # preprocessor keywords
     IMPORT = auto()
-    CONSTANT = auto()
 
 
-assert len(Keyword) == 17, "Too many Keywords defined"
+assert len(Keyword) == 14, "Too many Keywords defined"
 KEYWORDS_BY_NAME: Dict[str, Keyword] = {
     keyword.name.lower().replace("_", "-"): keyword for keyword in Keyword
 }
@@ -83,20 +79,19 @@ KEYWORDS_BY_NAME: Dict[str, Keyword] = {
 
 class TokenType(Enum):
     KEYWORD = auto()                    # Keywords are basically all used for statements except for the syscall keyword
+    INTRINSIC = auto()
     IDENTIFIER = auto()                 # identifiers for variables and functions
     INT_LITERAL = auto()                # number literals
     STRING_LITERAL = auto()             # string literals
     OPERATOR = auto()                   # Things that manipulate values (basically operators but named weird)
     SYSCALL = auto()                    # syscalls
-    LOADER = auto()                     # load a value from memory
-    STORER = auto()                     # store a value in memory
     EOE = auto()                        # End of expression
     PAREN_BLOCK_START = auto()          # Start of parenthesis block
     PAREN_BLOCK_END = auto()            # End of parenthesis block
     ARG_DELIMITER = auto()              # Argument delimiter
     TYPE = auto()                       # Type name
 
-assert len(TokenType) == 13, "Too many TokenTypes defined"
+assert len(TokenType) == 12, "Too many TokenTypes defined"
 TOKENTYPE_BY_NAME: Dict[str, TokenType] = {
     TokenType.name.lower(): TokenType for TokenType in TokenType
 }
@@ -157,26 +152,40 @@ SYSCALL_BY_NAME: Dict[str, Syscall] = {
     syscall.name.lower(): syscall for syscall in Syscall
 }
 
-class Loader(Enum):
-    LOAD8 = 0
-    LOAD16 = 1
-    LOAD32 = 2
-    LOAD64 = 3
+class Intrinsic(Enum):
+    PRINT = auto()
+    ADDRESS_OF = auto()
+    DROP = auto()
+    LOAD8 = auto()
+    LOAD16 = auto()
+    LOAD32 = auto()
+    LOAD64 = auto()
+    STORE8 = auto()
+    STORE16 = auto()
+    STORE32 = auto()
+    STORE64 = auto()
+    
+    def get_sized_index(val: 'Intrinsic') -> int:
+        return {
+            Intrinsic.STORE8: 0,
+            Intrinsic.STORE16: 1,
+            Intrinsic.STORE32: 2,
+            Intrinsic.STORE64: 3,
+            Intrinsic.LOAD8: 0,
+            Intrinsic.LOAD16: 1,
+            Intrinsic.LOAD32: 2,
+            Intrinsic.LOAD64: 3
+        }[val]
+    
+    def is_storer(storer: 'Intrinsic') -> bool:
+        return storer in [Intrinsic.STORE8, Intrinsic.STORE16, Intrinsic.STORE32, Intrinsic.STORE64]
+    
+    def is_loader(loader: 'Intrinsic') -> bool:
+        return loader in [Intrinsic.LOAD8, Intrinsic.LOAD16, Intrinsic.LOAD32, Intrinsic.LOAD64]
 
-assert len(Loader) == 4, "Too many LoaderTypes defined"
-LOADER_BY_NAME: Dict[str, Loader] = {
-    loader.name.lower(): loader for loader in Loader
-}
-
-class Storer(Enum):
-    STORE8 = 0
-    STORE16 = 1
-    STORE32 = 2
-    STORE64 = 3
-
-assert len(Storer) == 4, "Too many StorerTypes defined"
-STORER_BY_NAME: Dict[str, Storer] = {
-    storer.name.lower(): storer for storer in Storer
+assert len(Intrinsic) == 11, "Too many IntrinsicTypes defined"
+INTRINSIC_BY_NAME: Dict[str, Intrinsic] = {
+    intrinsic.name.lower(): intrinsic for intrinsic in Intrinsic
 }
 
 class ExprType(Enum):

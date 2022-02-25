@@ -144,7 +144,7 @@ class ExpressionParser:
             self.__next_token()
             return self.parse_top_level()
         elif self.cur_tok.type == TokenType.KEYWORD:
-            assert len(Keyword) == 17, "Invalid amount of keywords defined at ExpressionParser.parse_top_level"
+            assert len(Keyword) == 14, "Invalid amount of keywords defined at ExpressionParser.parse_top_level"
             if self.cur_tok.value == Keyword.CONSTANT:
                 self.parse_const_def()
                 return self.parse_top_level()
@@ -167,7 +167,7 @@ class ExpressionParser:
 
 
     def parse_primary(self) -> Optional[Statement]:
-        assert len(TokenType) == 13, "Too many TokenTypes defined at ExpressionParser.parse_primary"
+        assert len(TokenType) == 12, "Too many TokenTypes defined at ExpressionParser.parse_primary"
 
         ret_expr: Optional[Union[Expression, Statement]] = None
         if self.cur_tok is None:
@@ -186,10 +186,8 @@ class ExpressionParser:
             ret_expr = self.parse_string_literal_expression()
         elif self.cur_tok.type == TokenType.SYSCALL:
             ret_expr = self.parse_syscall_expression()
-        elif self.cur_tok.type == TokenType.LOADER:
-            ret_expr = self.parse_loader_expression()
-        elif self.cur_tok.type == TokenType.STORER:
-            ret_expr = self.parse_storer_statement()
+        elif self.cur_tok.type == TokenType.INTRINSIC:
+            ret_expr = self.parse_intrinsic()
         elif self.cur_tok.type == TokenType.TYPE:
             ret_expr = self.parse_cast_expression()
         else:
@@ -211,12 +209,27 @@ class ExpressionParser:
         #else:
         #    return expr
 
-    def parse_keyword(self) -> Statement:
-        assert len(Keyword) == 17, "Too many keywords defined at ExpressionParser.parse_keyword"
-        assert self.cur_tok is not None, "Unexpected EOF"
-        if self.cur_tok.value == Keyword.PRINT:
+    def parse_intrinsic(self) -> Expression:
+        assert len(Intrinsic) == 11, "Too many Intrinsics defined at ExpressionParser.parse_intrinsic"
+        if self.cur_tok.value == Intrinsic.PRINT:
             return self.parse_print_statement()
-        elif self.cur_tok.value == Keyword.IF:
+        elif self.cur_tok.value == Intrinsic.DROP:
+            return self.parse_drop_statement()
+        elif self.cur_tok.value == Intrinsic.ADDRESS_OF:
+            return self.parse_address_of_expression()
+        elif Intrinsic.is_loader(self.cur_tok.value):
+            return self.parse_loader_expression()
+        elif Intrinsic.is_storer(self.cur_tok.value):
+            return self.parse_storer_statement()
+        else:
+            raise Exception(f"Unexpected intrinsic {self.cur_tok.value} at {format_location(self.cur_tok.location)}")
+        
+
+
+    def parse_keyword(self) -> Statement:
+        assert len(Keyword) == 14, "Too many keywords defined at ExpressionParser.parse_keyword"
+        assert self.cur_tok is not None, "Unexpected EOF"
+        if self.cur_tok.value == Keyword.IF:
             return self.parse_control_statement(Keyword.IF)
         elif self.cur_tok.value == Keyword.WHILE:
             return self.parse_control_statement(Keyword.WHILE)
@@ -224,10 +237,6 @@ class ExpressionParser:
             return self.parse_function_statement()
         elif self.cur_tok.value == Keyword.DEFINE:
             return self.parse_var_def_statement()
-        elif self.cur_tok.value == Keyword.DROP:
-            return self.parse_drop_statement()
-        elif self.cur_tok.value == Keyword.ADDRESS_OF:
-            return self.parse_address_of_expression()
         elif self.cur_tok.value == Keyword.RETURN:
             return self.parse_return_statement()
         elif self.cur_tok.value == Keyword.ALLOCATE:
@@ -247,7 +256,7 @@ class ExpressionParser:
 
         ident = self.__get_ident_ref()
         if ident is not None:
-            assert len(IdentType) == 3, "Too many IdentTypes defined at ExpressionParser.parse_fun_proto_statement"
+            assert len(IdentType) == 4, "Too many IdentTypes defined at ExpressionParser.parse_fun_proto_statement"
             if ident.type == IdentType.FUNCTION:
                 raise Exception(f"Attempted redefinition of Function {ident.value} at {format_location(self.cur_tok.location)}; already defined at {format_location(ident.token.location)}")
             elif ident.type == IdentType.VARIABLE:
@@ -513,7 +522,7 @@ class ExpressionParser:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
 
-        assert isinstance(self.cur_tok.value, Storer), f"Expected Storer at {format_location(self.cur_tok.location)}"
+        assert isinstance(self.cur_tok.value, Intrinsic), f"Expected Storer at {format_location(self.cur_tok.location)}"
         self.__next_token() # eat the storer keyword
         # now we get the value to be stored
         
@@ -535,8 +544,11 @@ class ExpressionParser:
         params = self.__get_call_args()
         self.__next_token()
         assert len(params) == 1, f"Expected 1 parameter for cast at {format_location(prev_tok.location)}"
-        params[0].type = prev_tok.value
-        return params[0]
+        if isinstance(params[0], IdentRefExpr):
+            return IdentRefExpr(params[0].token, params[0].value, params[0].ident_kind, prev_tok.value)
+        else:
+            params[0].type = prev_tok.value
+            return params[0]
 
     def parse_syscall_expression(self) -> SyscallExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
@@ -551,16 +563,15 @@ class ExpressionParser:
         self.__next_token() # eat the ')'
         callnum = args[0]
         args.remove(args[0])
-
+        if arg_count != len(args):
+            raise Exception(f"Expected {callnum} arguments for syscall{callnum} at {format_location(prev_tok.location)} but got {len(args)}")
         return SyscallExpr(prev_tok, prev_tok.value, callnum, args)
 
     # can return a value, the type should be dependent on the pointer type in the future
     def parse_loader_expression(self) -> LoaderExpr:
         assert self.cur_tok is not None, "Unexpected EOF"
         prev_tok = self.cur_tok
-
-        assert isinstance(self.cur_tok.value, Loader), f"Expected Loader keyword at {format_location(prev_tok.location)}"
-        self.__next_token() # eat the Loader keyword
+        self.__next_token() 
         # now we must parse the binary expression that is the pointer
 
         params = self.__get_call_args()

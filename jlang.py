@@ -8,6 +8,7 @@ from enum import Enum, auto
 from ExpressionParser import ExpressionParser
 from JlangObjects import *
 from Tokenizer import Tokenizer
+from TypeChecker import TypeChecker
 
 class Program:
     def __init__(self, filename: str, dump_ast: bool = False, dump_tokens: bool = False, dump_functions: bool = False, dump_globals: bool = False):
@@ -31,6 +32,10 @@ class Program:
         AST = self.parser.parse_program()
         if AST is None:
             raise Exception("Failed to parse program")
+        
+        checker = TypeChecker(AST.copy(), self.parser.prototypes.copy())
+        checker.parse_program()
+        checker.print_state()
 
         if self.dump_functions:
             print("--------------------------------")

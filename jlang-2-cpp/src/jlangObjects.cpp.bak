@@ -1,0 +1,154 @@
+#include "JlangObjects.h"
+
+namespace jlang {
+    #define o(n) case strhash::hash(#n): return TokenType::n;  
+    static constexpr TokenType get_token_type_by_name(const char *name){ 
+        switch(strhash::hash(name)){
+            ENUM_TOKENTYPE(o)
+            default: 
+                return TokenType::INVALID;
+        }
+    }
+    #undef o
+
+    #define o(n) case TokenType::n: return #n;
+    static constexpr const char *get_enum_name(TokenType type){
+        switch(type){
+            ENUM_TOKENTYPE(o)
+            default: 
+                return "INVALID";
+        }
+    }
+    #undef o
+
+    static constexpr const char *get_token_type_string(TokenType type) {
+        switch(type) {
+            case TokenType::INT_LITERAL:
+                return "INT_LITERAL";
+            case TokenType::STRING_LITERAL:
+                return "STRING_LITERAL";
+            case TokenType::KEYWORD:
+                return "KEYWORD";
+            case TokenType::OPERATOR:
+                return "OPERATOR";
+            case TokenType::INTRINSIC:
+                return "INTRINSIC";
+            default:
+                return "INVALID";
+        }
+    }
+
+    #define o(n) case strhash::hash(#n): return Keyword::n;  
+    static constexpr Keyword get_keyword_by_name(const char *name){
+        switch(strhash::hash(name)){
+            ENUM_KEYWORD(o)
+            default:
+                return Keyword::INVALID;
+        }
+    }
+    #undef o
+
+    #define o(n) case Keyword::n: return "KEYWORD_"#n;
+    static constexpr const char *get_enum_name(Keyword type){
+        switch(type){
+            ENUM_KEYWORD(o)
+            default: 
+                return "INVALID";
+        }
+    }
+    #undef o
+
+
+    static constexpr Operator get_operator_by_name(const char *name){
+        switch(strhash::hash(name)){
+            case strhash::hash("plus"): return Operator::PLUS;
+            case strhash::hash("minus"): return Operator::MINUS;
+            case strhash::hash("multiply"): return Operator::MULTIPLY;
+            case strhash::hash("divide"): return Operator::DIVIDE;
+            case strhash::hash("modulo"): return Operator::MODULO;
+            case strhash::hash("greater"): return Operator::GREATER;
+            case strhash::hash("less"): return Operator::LESS;
+            case strhash::hash("equal"): return Operator::EQUAL;
+            case strhash::hash("not-equal"): return Operator::NOT_EQUAL;
+            case strhash::hash("greater-equal"): return Operator::GREATER_EQUAL;
+            case strhash::hash("less-equal"): return Operator::LESS_EQUAL;
+            default: return Operator::INVALID;
+        }
+    }
+
+    static constexpr const char *get_enum_name(Operator type){
+        switch(type){
+            case Operator::PLUS: return "OPERATOR_PLUS";
+            case Operator::MINUS: return "OPERATOR_MINUS"; 
+            case Operator::MULTIPLY: return "OPERATOR_MULTIPLY";
+            case Operator::DIVIDE: return "OPERATOR_DIVIDE";
+            case Operator::MODULO: return "OPERATOR_MODULO";
+            case Operator::GREATER: return "OPERATOR_GREATER";
+            case Operator::LESS: return "OPERATOR_LESS";
+            case Operator::EQUAL: return "OPERATOR_EQUAL";
+            case Operator::NOT_EQUAL: return "OPERATOR_NOT_EQUAL";
+            case Operator::GREATER_EQUAL: return "OPERATOR_GREATER_EQUAL";
+            case Operator::LESS_EQUAL: return "OPERATOR_LESS_EQUAL";
+            default: return "INVALID";
+        }
+    }
+
+    #define o(n) case strhash::hash(#n): return Intrinsic::n;  
+    static constexpr Intrinsic get_intrinsic_by_name(const char *name){
+        switch(strhash::hash(name)){
+            ENUM_INTRINSIC(o)
+            default:
+                return Intrinsic::INVALID;
+        }
+    }
+    #undef o
+
+    #define o(n) case Intrinsic::n: return "INTRINSIC_"#n;
+    static constexpr const char *get_enum_name(Intrinsic type){
+        switch(type){
+            ENUM_INTRINSIC(o)
+            default: 
+                return "INVALID";
+        }
+    }
+    #undef o
+
+
+    #define o(n) case strhash::hash(#n): return ExprType::n;  
+    static constexpr ExprType get_expr_type_by_name(const char *name){
+        switch(strhash::hash(name)){
+            ENUM_EXPRTYPE(o)
+            default:
+                return ExprType::INVALID;
+        }
+    }
+    #undef o
+
+    #define o(n) case ExprType::n: return "EXPRTYPE_"#n;
+    static constexpr const char *get_enum_name(ExprType type){
+        switch(type){
+            ENUM_EXPRTYPE(o)
+            default: 
+                return "INVALID";
+        }
+    }
+    #undef o
+
+
+    std::string get_token_type_value_string(TokenType type, TokenValue value) {
+            switch(type) {
+                case TokenType::INT_LITERAL:
+                    return std::to_string(value.as.integer);
+                case TokenType::STRING_LITERAL:
+                    return *value.as.string;
+                case TokenType::KEYWORD:
+                    return std::string(get_enum_name(value.as.keyword));
+                case TokenType::OPERATOR:
+                    return std::string(get_enum_name(value.as.operator_));
+                case TokenType::INTRINSIC:
+                    return std::string(get_enum_name(value.as.intrinsic));
+                default:
+                    return "";
+            }
+    }
+}

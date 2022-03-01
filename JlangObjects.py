@@ -50,6 +50,21 @@ class AsmInfo:
             return AsmInfo.__abi_regs[argnum]
     
 
+# IF,         // if conditional designator
+# WHILE,      // while conditional designator
+# FUNCTION,   // function definition designator
+# DEFINE,     // variable definition designator
+# ALLOCATE,   // array allocation designator
+# CONSTANT,   // constant statement designator
+# DO,         // block open
+# IS,         // assignment operator and block open
+# AS,         // type designator
+# TO,         // unused
+# YIELDS,     // used to designate return type
+# DONE,       // block end
+# RETURN,     // function return
+# IMPORT,     // file import
+
 class Keyword(Enum):
     # controllers are used to control the flow of the program
     IF = auto()

@@ -229,6 +229,26 @@ namespace jlang {
                 }
         };
 
+        class FunCallExpr : public CallExpr {
+            protected:
+                std::unique_ptr<IdentRefExpr> expr;
+            public:
+                /// TODO: Lookup of function data from context
+                FunCallExpr(Location loc, std::unique_ptr<IdentRefExpr> target, std::vector<std::unique_ptr<Expression>> args) : CallExpr(loc, std::move(args)), expr(std::move(target)) {}
+                std::string display(int depth = 0) {
+                    std::stringstream ss;
+                    ss << std::string(depth, ' ') << "FunCallExpr\n";
+                    ss << std::string(depth + 4, ' ') << "Location: " << loc.display() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Type: " << get_enum_name(type) << '\n';
+                    ss << std::string(depth + 4, ' ') << "Name: " << expr->get_ident_name() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Args:\n";
+                    for(auto &arg : args) {
+                        ss << arg->display(depth + 8) << '\n';
+                    }
+                    return ss.str();
+                }
+        };
+
         class IntrinsicStmt : public Statement {
             protected:
                 std::unique_ptr<Expression> expr;
@@ -298,6 +318,87 @@ namespace jlang {
                     ss << std::string(depth + 4, ' ') << "Value:\n" << value->display(depth + 8);
                     return ss.str();
                 }
+        };
+
+        class PrintStmt : public IntrinsicStmt {
+            public: 
+                PrintStmt(Location loc, std::unique_ptr<Expression> value) : IntrinsicStmt(loc, std::move(value)) {}
+                std::string display(int depth = 0) {
+                    std::stringstream ss;
+                    ss << std::string(depth, ' ') << "PrintStmt\n";
+                    ss << std::string(depth + 4, ' ') << "Location: " << loc.display() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Type: " << get_enum_name(type) << '\n';
+                    ss << std::string(depth + 4, ' ') << "Value:\n" << expr->display(depth + 8);
+                    return ss.str();
+                }
+        };
+
+        class ReturnStmt : public IntrinsicStmt {
+            public:
+                ReturnStmt(Location loc, std::unique_ptr<Expression> value = nullptr) : IntrinsicStmt(loc, std::move(value)) {}
+                std::string display(int depth = 0) {
+                    std::stringstream ss;
+                    ss << std::string(depth, ' ') << "ReturnStmt\n";
+                    ss << std::string(depth + 4, ' ') << "Location: " << loc.display() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Type: " << get_enum_name(type) << '\n';
+                    ss << std::string(depth + 4, ' ') << "Value:\n" << expr->display(depth + 8);
+                    return ss.str();
+                }
+        };
+
+        class FunStmt : public Statement {
+            protected:
+                std::string name;
+                std::vector<std::unique_ptr<VarDefStmt>> args;
+                std::vector<std::unique_ptr<Statement>> body;
+            public:
+                FunStmt(Location loc, std::string name, std::vector<std::unique_ptr<VarDefStmt>> args, std::vector<std::unique_ptr<Statement>> body) : Statement(loc, ExprType::NONE), name(name), args(std::move(args)), body(std::move(body)) {}
+                std::string display(int depth = 0) {
+                    std::stringstream ss;
+                    ss << std::string(depth, ' ') << "FunStmt\n";
+                    ss << std::string(depth + 4, ' ') << "Location: " << loc.display() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Type: " << get_enum_name(type) << '\n';
+                    ss << std::string(depth + 4, ' ') << "Name: " << name << '\n';
+                    ss << std::string(depth + 4, ' ') << "Args:\n";
+                    for(auto &arg : args) {
+                        ss << arg->display(depth + 8) << '\n';
+                    }
+                    ss << std::string(depth + 4, ' ') << "Body:\n";
+                    for(auto &stmt : body) {
+                        ss << stmt->display(depth + 8) << '\n';
+                    }
+                    return ss.str();
+                }
+        };
+
+        class ControlStmt : public Statement {
+            protected:
+                std::unique_ptr<Expression> condition;
+                std::vector<std::unique_ptr<Statement>> body;
+            public:
+                ControlStmt(Location loc, std::unique_ptr<Expression> condition, std::vector<std::unique_ptr<Statement>> body) : Statement(loc, ExprType::NONE), condition(std::move(condition)), body(std::move(body)) {}
+                std::string display(int depth = 0) {
+                    std::stringstream ss;
+                    ss << std::string(depth, ' ') << "ControlStmt\n";
+                    ss << std::string(depth + 4, ' ') << "Location: " << loc.display() << '\n';
+                    ss << std::string(depth + 4, ' ') << "Type: " << get_enum_name(type) << '\n';
+                    ss << std::string(depth + 4, ' ') << "Condition:\n" << condition->display(depth + 8);
+                    ss << std::string(depth + 4, ' ') << "Body:\n";
+                    for(auto &stmt : body) {
+                        ss << stmt->display(depth + 8) << '\n';
+                    }
+                    return ss.str();
+                }
+        };
+
+        class IfStmt : public ControlStmt {
+            public:
+                IfStmt(Location loc, std::unique_ptr<Expression> condition, std::vector<std::unique_ptr<Statement>> body) : ControlStmt(loc, std::move(condition), std::move(body)) {}
+        };
+
+        class WhileStmt : public ControlStmt {
+            public:
+                WhileStmt(Location loc, std::unique_ptr<Expression> condition, std::vector<std::unique_ptr<Statement>> body) : ControlStmt(loc, std::move(condition), std::move(body)) {}
         };
     }
 }

@@ -58,7 +58,6 @@ namespace jlang {
         o(TO)          /* unused */\
         o(YIELDS)      /* used to designate return type */\
         o(DONE)        /* block end */\
-        o(RETURN)      /* function return */\
         o(IMPORT)      /* file import (preprocessor) */\
 
     #define o(n) n, 
@@ -84,6 +83,7 @@ namespace jlang {
 
 
     #define ENUM_INTRINSIC(o) \
+        o(RETURN)      /* function return */\
         o(SYSCALL0) \
         o(SYSCALL1) \
         o(SYSCALL2) \
@@ -413,87 +413,6 @@ namespace jlang {
             return location.display() + ": " + get_enum_name(type) + "; " + get_token_type_value_string(type, value) +  "; \"" + text +'"';
         }
     } Token;
-/*
-    class ExprValue {
-    private:
-        ExprValType type;
-        ExprValueField_u as;
-
-    public:
-        ExprValue() {
-            type = ExprValType::INVALID;
-            as.integer = 0;
-        }
-        ExprValue(uint64_t integer) {
-            this->type = ExprValType::INTEGER;
-            this->as.integer = integer;
-        }
-        ExprValue(std::string string) {
-            this->type = ExprValType::STRING;
-            this->as.string = new std::string(string);
-        }
-        ExprValue(statements::Expression expr) {
-            this->type = ExprValType::EXPRESSION;
-            this->as.expr = new statements::Expression(expr);
-        }
-        ExprValue(std::vector<statements::Expression> expr_list) {
-            this->type = ExprValType::EXPRESSION_LIST;
-            this->as.expr_list = new std::vector<statements::Expression>(expr_list);
-        }
-        ExprValType get_type() { return type;}
-
-        uint64_t get_integer() {
-            if(type == ExprValType::INTEGER) {
-                return as.integer;
-            }
-            return 0;
-        }
-
-        std::string get_string() {
-            if(type == ExprValType::STRING) {
-                return *as.string;
-            }
-            return "";
-        }
-
-        statements::Expression get_expression() {
-            if(type == ExprValType::EXPRESSION) {
-                return *as.expr;
-            }
-            return statements::Expression();
-        }
-
-        std::vector<statements::Expression> get_expression_list() {
-            if(type == ExprValType::EXPRESSION_LIST) {
-                return *as.expr_list;
-            }
-            return std::vector<statements::Expression>();
-        }
-
-        std::string display(int depth = 0) {
-            switch(type) {
-                case ExprValType::INTEGER:
-                    return std::to_string(as.integer);
-                case ExprValType::STRING:
-                    return *as.string;
-                case ExprValType::EXPRESSION:
-                    return as.expr->display();
-                case ExprValType::EXPRESSION_LIST:
-                    {
-                        std::stringstream ss;
-                        ss << "[";
-                        for(auto &expr : *as.expr_list) {
-                            ss << std::string(depth + 4, ' ') << expr.display(depth + 4) << ",\n";
-                        }
-                        ss << std::string(depth, ' ') << "]";
-                        return ss.str();
-                    }
-                default:
-                    return "";
-            }
-        }
-    };
-    */
 
    class Variable {
         private:
@@ -521,6 +440,19 @@ namespace jlang {
         Constant(std::string name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
             this->value.string = value;
         }
+   };
+
+   class FunProto {
+       private: 
+       std::string name;
+       std::vector<Variable> args;
+       ExprType return_type;
+       public:
+         FunProto(std::string name, std::vector<Variable> args, ExprType return_type) {
+              this->name = name;
+              this->args = args;
+              this->return_type = return_type;
+         }
    };
 }
 #endif // JLANGOBJECTS_H_

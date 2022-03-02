@@ -260,6 +260,23 @@ namespace jlang {
         }
     }
 
+    JLDEF constexpr int get_operator_precedence(Operator op){
+        switch(op){
+            case Operator::PLUS: return 20;
+            case Operator::MINUS: return 20;
+            case Operator::MULTIPLY: return 30;
+            case Operator::DIVIDE: return 30;
+            case Operator::MODULO: return 30;
+            case Operator::GREATER: return 10;
+            case Operator::LESS: return 10;
+            case Operator::EQUAL: return 10;
+            case Operator::NOT_EQUAL: return 10;
+            case Operator::GREATER_EQUAL: return 10;
+            case Operator::LESS_EQUAL: return 10;
+            default: return -1;
+        }
+    }
+
     #define o(n) case strhash::hash(#n): return Intrinsic::n;  
     JLDEF constexpr Intrinsic get_intrinsic_by_name(const char *name){
         switch(strhash::hash(name)){

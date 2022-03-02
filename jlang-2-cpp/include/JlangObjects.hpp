@@ -494,5 +494,33 @@ namespace jlang {
         }
     };
     */
+
+   class Variable {
+        private:
+        std::string name;
+        ExprType type;
+        size_t size; // in bytes
+        public:
+        Variable(std::string name, ExprType type, size_t size) {
+            this->name = name;
+            this->type = type;
+            this->size = size;
+        }
+   };
+
+   class Constant : public Variable {
+        private:
+        union {
+            uint64_t integer;
+            std::string *string;
+        } value;
+        public:
+        Constant(std::string name, ExprType type, size_t size, uint64_t value) : Variable(name, type, size) {
+            this->value.integer = value;
+        }
+        Constant(std::string name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
+            this->value.string = value;
+        }
+   };
 }
 #endif // JLANGOBJECTS_H_

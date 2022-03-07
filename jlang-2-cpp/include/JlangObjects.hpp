@@ -184,8 +184,10 @@ namespace jlang {
     } TokenValue;
     
 #pragma region Implementation
-//#define JLANGOBJECTS_IMPLEMENTATION
-//#ifdef JLANGOBJECTS_IMPLEMENTATION
+
+    // These macros use the macros defined above to 
+    // create constexpr switch cases for getting names and enum types.
+
     #define o(n) case strhash::hash(#n): return TokenType::n;
     JLDEF static constexpr TokenType get_token_type_by_name(const char *name){
         switch(strhash::hash(name)){
@@ -203,7 +205,6 @@ namespace jlang {
         }
     }
     #undef o
-
 
     #define o(n) case strhash::hash(#n): return Keyword::n;  
     JLDEF constexpr Keyword get_keyword_by_name(const char *name){
@@ -384,7 +385,7 @@ namespace jlang {
 //#endif // JLANGOBJECTS_IMPLEMENTATION
 #pragma endregion Implementation
 
-
+    /// \brief Contains the location of a token in a file.
     typedef struct Location_s {
         std::string file;
         std::size_t line;
@@ -406,6 +407,7 @@ namespace jlang {
         }
     } Location;
 
+    /// \brief Contains the type, location, text and value of a Token from a parse file.
     typedef struct Token_s {
         TokenType type;
         std::string text;
@@ -421,7 +423,7 @@ namespace jlang {
 
         Token_s(TokenType type, std::string text, Location location, TokenValue value) {
             this->type = type;
-            this->text = text;
+             this->text = text;
             this->location = location;
             this->value = value;
         }
@@ -431,7 +433,8 @@ namespace jlang {
         }
     } Token;
 
-   class Variable {
+    /// \brief Contains information about a defined variable
+    class Variable {
         private:
         std::string name;
         ExprType type;
@@ -444,7 +447,8 @@ namespace jlang {
         }
    };
 
-   class Constant : public Variable {
+    /// \brief Contains information and the value of a constant.
+    class Constant : public Variable {
         private:
         union {
             uint64_t integer;
@@ -459,7 +463,8 @@ namespace jlang {
         }
    };
 
-   class FunProto {
+    /// \brief Contains information about a function.
+    class FunProto {
        private: 
        std::string name;
        std::vector<Variable> args;

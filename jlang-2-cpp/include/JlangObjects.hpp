@@ -478,12 +478,13 @@ namespace jlang {
 
     /// \brief Contains information about a defined variable
     class Variable {
-        private:
+        protected:
         std::string_view name;
         ExprType type;
         size_t size; // in bytes
         public:
         constexpr Variable(std::string_view name, ExprType type, size_t size) : name(name), type(type), size(size) {}
+        constexpr Variable() : name(""), type(ExprType::INVALID), size(0) {}
         constexpr std::string_view get_name() const { return name; }
         constexpr ExprType get_type() const { return type; }
         constexpr size_t get_size() const { return size; }
@@ -507,9 +508,19 @@ namespace jlang {
         constexpr Constant(std::string_view name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
             this->value.string = value;
         }
+        constexpr Constant() : Variable() {
+            this->value.integer = 0;
+        }
         constexpr uint64_t get_int_value() const { return value.integer; }
         constexpr std::string *get_string_value() const { return value.string; }
-        auto operator<=>(const Constant&) const = default;
+        auto operator==(const Constant &other) const {
+            bool cmp_trivial = this->name == other.name && this->type == other.type && this->size == other.size;
+            if(this->type == ExprType::POINTER) {
+                return cmp_trivial && this->value.string == other.value.string;
+            } else {
+                return cmp_trivial && this->value.integer == other.value.integer;
+            }
+        }
    };
 
     /// \brief Contains information about a function.
@@ -519,9 +530,8 @@ namespace jlang {
         std::vector<Variable> args;
         ExprType return_type;
         public:
-        constexpr FunProto(std::string_view name, std::vector<Variable> &args, ExprType return_type) : name(name), return_type(return_type) {
-            this->args = std::move(args);
-        }
+        FunProto(std::string_view name, std::vector<Variable> &args, ExprType return_type) : name(name), args(std::move(args)), return_type(return_type) {}
+        FunProto() : name(""), args(std::vector<Variable>()), return_type(ExprType::INVALID) {}
         constexpr std::string_view get_name() const { return name; }
         constexpr std::vector<Variable> &get_args() { return args; }
         constexpr ExprType get_return_type() const { return return_type; }

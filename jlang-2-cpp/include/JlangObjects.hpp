@@ -2,9 +2,8 @@
 #define JLANGOBJECTS_H_
 #include <string>
 #include <vector>
-#include <map>
 #include <concepts>
-#include <memory>
+#include <compare>
 
 #include "strhash.hpp"
 //#include "Statements.hpp"
@@ -15,19 +14,9 @@
 
 namespace jlang {
 
-    class NotImplementedException : public std::exception {
-        public:
-            NotImplementedException(std::string message) : message(message) {}
-            const char* what() const noexcept override {
-                return message.c_str();
-            }
-        private:
-            std::string message;
-    };
-
-
 #pragma region Enums
 
+    /// TODO: Strip away unnecessary types and unify them into a generic "word" type
     #define ENUM_TOKENTYPE(o) \
         o(KEYWORD)                    /* Keywords are basically all used for statements except for the syscall keyword */\
         o(INTRINSIC) \
@@ -133,6 +122,14 @@ namespace jlang {
     
     #define o(n) n, 
     enum class IdentType { ENUM_IDENTTYPE(o) INVALID};
+    #undef o
+
+    #define ENUM_IROBJTYPE(o) \
+        o(STATEMENT) \
+        o(EXPRESSION)
+    
+    #define o(n) n,
+    enum class IRObjType { ENUM_IROBJTYPE(o) INVALID};
     #undef o
 
 #pragma endregion Enums
@@ -359,6 +356,24 @@ namespace jlang {
     }
     #undef o
 
+    #define o(n) case strhash::hash(#n): return IRObjType::n;
+    JLDEF constexpr IRObjType get_ir_obj_type_by_name(const char *name){
+        switch(strhash::hash(name)){
+            ENUM_IROBJTYPE(o)
+            default:
+                return IRObjType::INVALID;
+        }
+    }
+    #undef o
+
+    #define o(n) case IRObjType::n: return "IROBJTYPE_"#n;
+    JLDEF constexpr const char *get_enum_name(IRObjType type){
+        switch(type){
+            ENUM_IROBJTYPE(o)
+            default: 
+                return "INVALID";
+        }
+    }
 
     JLDEF static std::string get_token_type_value_string(TokenType type, TokenValue value) {
             switch(type) {
@@ -385,13 +400,41 @@ namespace jlang {
 //#endif // JLANGOBJECTS_IMPLEMENTATION
 #pragma endregion Implementation
 
+    
+    class NotImplementedException : public std::exception {
+        public:
+            NotImplementedException(std::string message) : message(message) {}
+            const char* what() const noexcept override {
+                return message.c_str();
+            }
+        private:
+            std::string message;
+    };
+
+    
+    // template<typename T> 
+    // using CondChecker = struct CondChecker_s {
+    //     private:
+    //     T check_value;
+    //     std::function<bool(T)> check_func;
+    //     public:
+    //     CondChecker_s(T check_value, std::function<bool(T)> check_func) : check_value(check_value), check_func(check_func) {}
+    //     bool check() {
+    //         return check_func(check_value);
+    //     }
+    //     T get_value() {
+    //         return check_value;
+    //     }
+    // };
+
+
     /// \brief Contains the location of a token in a file.
-    typedef struct Location_s {
+    typedef struct  Location_s {
         std::string file;
         std::size_t line;
         std::size_t column;
 
-        std::string display() {
+        std::string display() const {
             return file + ":" + std::to_string(line) + ":" + std::to_string(column);
         }
 
@@ -436,14 +479,17 @@ namespace jlang {
     /// \brief Contains information about a defined variable
     class Variable {
         private:
-        std::string name;
+        std::string_view name;
         ExprType type;
         size_t size; // in bytes
         public:
-        Variable(std::string name, ExprType type, size_t size) {
-            this->name = name;
-            this->type = type;
-            this->size = size;
+        constexpr Variable(std::string_view name, ExprType type, size_t size) : name(name), type(type), size(size) {}
+        constexpr std::string_view get_name() const { return name; }
+        constexpr ExprType get_type() const { return type; }
+        constexpr size_t get_size() const { return size; }
+        auto operator<=>(const Variable&) const = default;
+        auto operator==(const std::string &name) const {
+            return this->name == name;
         }
    };
 
@@ -455,26 +501,33 @@ namespace jlang {
             std::string *string;
         } value;
         public:
-        Constant(std::string name, ExprType type, size_t size, uint64_t value) : Variable(name, type, size) {
+        constexpr Constant(std::string_view name, ExprType type, size_t size, uint64_t value) : Variable(name, type, size) {
             this->value.integer = value;
         }
-        Constant(std::string name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
+        constexpr Constant(std::string_view name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
             this->value.string = value;
         }
+        constexpr uint64_t get_int_value() const { return value.integer; }
+        constexpr std::string *get_string_value() const { return value.string; }
+        auto operator<=>(const Constant&) const = default;
    };
 
     /// \brief Contains information about a function.
     class FunProto {
-       private: 
-       std::string name;
-       std::vector<Variable> args;
-       ExprType return_type;
-       public:
-         FunProto(std::string name, std::vector<Variable> args, ExprType return_type) {
-              this->name = name;
-              this->args = args;
-              this->return_type = return_type;
-         }
+        private: 
+        std::string_view name;
+        std::vector<Variable> args;
+        ExprType return_type;
+        public:
+        constexpr FunProto(std::string_view name, std::vector<Variable> &args, ExprType return_type) : name(name), return_type(return_type) {
+            this->args = std::move(args);
+        }
+        constexpr std::string_view get_name() const { return name; }
+        constexpr std::vector<Variable> &get_args() { return args; }
+        constexpr ExprType get_return_type() const { return return_type; }
+        bool operator==(const FunProto& fun) const {
+            return name == fun.get_name() && return_type == fun.get_return_type();
+        }
    };
 }
 #endif // JLANGOBJECTS_H_

@@ -1,7 +1,8 @@
 #include <iostream>
 #include "JlangObjects.hpp"
 #include "Tokenizer.hpp"
-#include "Statements.hpp"
+#include "ExpressionParser.hpp"
+
 
 int main(int argc, char** argv) {
     if(argv[1] == NULL){
@@ -12,6 +13,11 @@ int main(int argc, char** argv) {
     for(auto& token : tokenizer.get_tokens()){
         std::cout << token.display() << '\n';
     }
+
+    auto test = jlang::parser::ExpressionParser(tokenizer.get_tokens());
+    auto statements = test.parse_program();
+
+    /*
     auto token = tokenizer.get_tokens()[0];
     auto intexpr1 = std::make_unique<jlang::statements::IntLiteralExpr>(token.location, 68);
     auto intexpr2 = std::make_unique<jlang::statements::IntLiteralExpr>(token.location, 1);
@@ -25,6 +31,7 @@ int main(int argc, char** argv) {
     auto calltarget = std::make_unique<jlang::statements::IntLiteralExpr>(token.location, 1);
     auto callexpr = new jlang::statements::SyscallExpr(token.location, std::move(calltarget), std::move(args));
 
-    std::cout << callexpr->display() << '\n';
+    std::cout << callexpr->display() << '\n';*/
+
     return 0;
 }

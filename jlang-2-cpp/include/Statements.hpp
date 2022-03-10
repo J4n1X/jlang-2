@@ -7,6 +7,7 @@
 #include <typeinfo>
 #include <sstream>
 #include <concepts>
+#include <memory>
 
 #include "JlangObjects.hpp"
 
@@ -18,9 +19,11 @@ namespace jlang {
                 Location loc;
                 /// TODOOO: Check if it's neccessare to store the type of the statement.
                 ExprType type;
+                IRObjType stmt_kind;
             public:
                 Location get_location() { return loc; }
                 ExprType get_type() { return type; }
+                IRObjType get_stmt_kind() { return stmt_kind; }
                 Statement() : loc(), type(ExprType::NONE) {}
                 Statement(Location loc, ExprType type) : loc(loc), type(type) {}
                 ~Statement() {}
@@ -36,12 +39,16 @@ namespace jlang {
                     ss << "Statement derivative with type ID " << typeid(this).name() << " has not implemented codegen()";
                     return ss.str();
                 }
+                virtual std::vector<std::byte> to_ir() {
+                    throw NotImplementedException("Generating IR is not supported yet");
+                }
         };
         
 
         /// The Expression is only very loosely based on a Statement, but is derived from it to simplify function parameters later on.
         class Expression : public Statement {
             public: 
+                Expression() : Statement() {}
                 Expression(Location loc, ExprType type) : Statement(loc, type) {}
                 virtual ~Expression() {}
 
@@ -61,6 +68,8 @@ namespace jlang {
         };
 
         /// \brief Compile-time resolvable expressions
+        /// This replaces a lengthy check in the Python version to 
+        /// determine if you could resolve the expression at compile time.
         class ResolvableExpr : public Expression {
             public:
                 ResolvableExpr(Location loc, ExprType type) : Expression(loc, type) {}

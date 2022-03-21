@@ -43,7 +43,6 @@ namespace jlang {
                     throw NotImplementedException("Generating IR is not supported yet");
                 }
         };
-        
 
         /// The Expression is only very loosely based on a Statement, but is derived from it to simplify function parameters later on.
         class Expression : public Statement {
@@ -182,9 +181,9 @@ namespace jlang {
         class BinaryExpr : public Expression {
             protected:
                 Operator op; 
-                std::unique_ptr<ResolvableExpr> left, right;
+                std::unique_ptr<Expression> left, right;
             public:
-                BinaryExpr(Location loc, ExprType type, Operator op, std::unique_ptr<ResolvableExpr> lhs, std::unique_ptr<ResolvableExpr> rhs) : Expression(loc, type), op(op), left(std::move(lhs)), right(std::move(rhs)) {
+                BinaryExpr(Location loc, ExprType type, Operator op, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs) : Expression(loc, type), op(op), left(std::move(lhs)), right(std::move(rhs)) {
                 }
                 
                 std::string display(int depth = 0) {

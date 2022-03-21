@@ -530,7 +530,7 @@ namespace jlang {
         std::vector<Variable> args;
         ExprType return_type;
         public:
-        FunProto(std::string_view name, std::vector<Variable> &args, ExprType return_type) : name(name), args(std::move(args)), return_type(return_type) {}
+        FunProto(std::string_view name, std::vector<Variable> args, ExprType return_type) : name(name), args(args), return_type(return_type) {}
         FunProto() : name(""), args(std::vector<Variable>()), return_type(ExprType::INVALID) {}
         constexpr std::string_view get_name() const { return name; }
         constexpr std::vector<Variable> &get_args() { return args; }

@@ -8,6 +8,8 @@
 #include "Statements.hpp"
 #include "JlangObjects.hpp"
 
+#define UNIQUE(obj) std::unique_ptr<obj>
+
 
 namespace jlang {
     /// Unused.
@@ -64,28 +66,53 @@ namespace jlang {
                 return -1;
             }
 
+            /// Cast the unique pointer of a base class to a unique pointer of a derived class
+            template<typename Base, typename Spec>
+            inline std::unique_ptr<Spec> recast_base_pointer(std::unique_ptr<Base> ptr) {
+                return std::unique_ptr<Spec>(static_cast<Spec*>(ptr.release()));
+            }
+
             /// Parse statements until the end of the block is reached
-            std::vector<statements::Statement> parse_block(std::function<bool(Token)> start_check, std::function<bool(Token)> end_check);
+            std::vector<UNIQUE(statements::Statement)> parse_block(std::function<bool(Token)> start_check, std::function<bool(Token)> end_check);
             /// Parse variable declarations for function parameters
             std::vector<Variable> parse_proto_params(); 
             /// Parse Expressions passed to function call 
-            std::vector<statements::Expression> parse_call_args();
+            std::vector<UNIQUE(statements::Expression)> parse_call_args();
             /// Create a new identifier reference for use in the AST
-            std::vector<statements::IdentRefExpr> get_ident_ref(std::string_view ident_name);
+            std::vector<UNIQUE(statements::IdentRefExpr)> get_ident_ref(std::string_view ident_name);
 
 
             /// Parse all tokens passed
-            std::vector<statements::Statement> parse_program();
+            std::vector<UNIQUE(statements::Statement)> parse_program();
             /// Parse either Statement or Expression (but do not resolve to AST tree)
-            statements::Statement parse_primary();      
+            UNIQUE(statements::Statement) parse_primary();      
             /// Parse either Statement or Expression
-            statements::Statement parse_any();          
+            UNIQUE(statements::Statement) parse_any();          
             /// Parse only statements, if the next next IR Object isn't a Statement, it will throw an exception
-            statements::Statement parse_statement();    
+            UNIQUE(statements::Statement) parse_statement();    
             /// Parse only expressions, if the next next IR Object isn't an Expression, it will throw an exception
-            statements::Expression parse_expression();  
+            std::unique_ptr<statements::Expression> parse_expression(); 
+            /// Parse an expression keyword
+            UNIQUE(statements::Statement) parse_keyword();
+            /// Parse an identifier
+            UNIQUE(statements::IdentRefExpr) parse_ident();
+            /// Parse an integer literal
+            UNIQUE(statements::Statement) parse_int_literal_expr();
+            /// Parse a string literal
+            UNIQUE(statements::Statement) parse_string_literal_expr();
+            /// Parse an intrinsic function call
+            UNIQUE(statements::Statement) parse_intrinsic();
+            /// Parse a type cast
+            UNIQUE(statements::Statement) parse_type_cast();
+            /// Parse a binary expression
+            UNIQUE(statements::BinaryExpr) parse_binary_expr(int precedence, UNIQUE(statements::Expression) left);
+
+            /// Parse a function prototype
+            FunProto parse_fun_proto();
+
         };
     }
 }
 
+#undef UNIQUE
 #endif

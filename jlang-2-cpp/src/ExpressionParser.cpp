@@ -1,6 +1,8 @@
 #include "ExpressionParser.hpp"
 #include "JlangExceptions.hpp"
 #include <iostream>
+#include <ranges>
+#include <algorithm>
 
 using namespace jlang;
 using namespace jlang::statements;
@@ -19,119 +21,138 @@ using namespace jlang::parser;
     }
 
 /// Parse statements until the end of the block is reached
-std::vector<UNIQUE(Statement)> ExpressionParser::parse_block(std::function<bool(Token)> start_check, std::function<bool(Token)> end_check){
-    if(at_eof){
-        throw ParserException("Unexpected end of file", cur_tok.location);
-    }
-    if(!start_check(cur_tok)){
-        throw ParserException("Expected start of block", cur_tok.location);
-    }
-    next_token();
-    std::vector<UNIQUE(Statement)> statements;
-    while(!at_eof && !end_check(cur_tok)){
-        UNIQUE(Statement) statement;
-        PARSE_SPECIFIC(parse_any, statement);
-        statements.push_back(std::move(statement));
-    }
-    if(at_eof){
-        throw ParserException("Unexpected end of file", cur_tok.location);
-    }
-    return statements;
-}
-/// Parse variable declarations for function parameters
-std::vector<Variable> ExpressionParser::parse_proto_params() {
-    throw NotImplementedException("Function parameters are not implemented yet");
-/*    if(at_eof)
-        throw ParserException("Unexpected end of file", cur_tok.location);
-    std::vector<Variable> params;
-    if(cur_tok.type != TokenType::PAREN_BLOCK_START)
-        throw ParserException("Expected '('", cur_tok.location);
-    next_token();
-    if(cur_tok.type == TokenType::PAREN_BLOCK_END){
-        next_token();
-        return params;
-    }
-    Variable param;
-    PARSE_SPECIFIC(parse_variable, param);
-    params.push_back(param);
-    while(cur_tok.type == TokenType::COMMA){
-        next_token();
-        PARSE_SPECIFIC(parse_variable, param);
-        params.push_back(param);
-    }
-    if(cur_tok.type != TokenType::PAREN_CLOSE)
-        throw ParserException("Expected ')'", cur_tok.location);
-    next_token();
-    return params;*/
-}
-/// Parse Expressions passed to function call 
-std::vector<UNIQUE(Expression)> ExpressionParser::parse_call_args(){
+BlockStmt *ExpressionParser::parse_block(std::function<bool(Token)> start_check, std::function<bool(Token)> end_check, std::function<bool(Token)> delim_check){
     if(at_eof)
-        throw ParserException("Unexpected end of file", cur_tok.location);
-    std::vector<UNIQUE(Expression)> args;
-    if(cur_tok.type != TokenType::PAREN_BLOCK_START)
-        throw ParserException("Expected '('", cur_tok.location);
+        throw ParserException("Unexpected end of file", cur_tok);
+    if(!start_check(cur_tok))
+        throw ParserException("Expected start of block", cur_tok);
     next_token();
-    if(cur_tok.type == TokenType::PAREN_BLOCK_END){
-        next_token();
-        return args;
-    }
-    while(!at_eof && cur_tok.type != TokenType::PAREN_BLOCK_END){
-        UNIQUE(Expression) arg;
-        PARSE_SPECIFIC(parse_expression,arg);
-        args.push_back(std::move(arg));
-        if(cur_tok.type == TokenType::ARG_DELIMITER){
+    auto prev_tok = cur_tok;
+    std::vector<Statement*> statements;
+    while(true){
+        statements::Statement *statement = parse_any();
+        statements.push_back(statement);
+
+        if(end_check(cur_tok))
+            break;
+
+        if(delim_check(cur_tok)){
             next_token();
+        } else {
+            throw ParserException("Expected delimiter", cur_tok);
         }
     }
-    if(at_eof)
-        throw ParserException("Unexpected end of file", cur_tok.location);
-    if(cur_tok.type != TokenType::PAREN_BLOCK_END)
-        throw ParserException("Expected ')'", cur_tok.location);
-    return args;
+
+    return new BlockStmt(prev_tok.location, ExprType::NONE, this->state, statements);
+}
+
+BlockStmt *ExpressionParser::parse_function_body(){
+    auto block = parse_block(
+        [](Token tok){
+        if(tok.type == TokenType::KEYWORD)
+            return tok.value.as_keyword() == Keyword::IS;
+        return false;
+    }, [](Token tok){
+        if(tok.type == TokenType::KEYWORD)
+            return tok.value.as_keyword() == Keyword::DONE;
+        return false;
+    }, [](Token tok){
+        return true;
+    });
+
+    ExprType ret_type = ExprType::NONE;
+    auto statements = block->get_statements();
+    if(statements.back()->get_type() != ExprType::NONE){
+        if(statements.back()->get_kind() == StatementType::INTRINSIC){
+            if(((IntrinsicStmt *)statements.back())->get_intrinsic_kind() == Intrinsic::RETURN)
+                ret_type = statements.back()->get_type();   
+            else 
+                throw ParserException("Unhandled data in function body", cur_tok);
+        }
+        else {
+            throw ParserException("Unhandled data in function body", cur_tok);
+        }
+    }
+    block->set_type(ret_type);
+    this->next_token();
+    return block;
+}
+
+BlockStmt *ExpressionParser::parse_call_args(){
+    return parse_block(
+        [](Token tok){
+            return tok.type == TokenType::PAREN_BLOCK_START;
+        },
+        [](Token tok){
+            return tok.type == TokenType::PAREN_BLOCK_END;
+        },
+        [](Token tok){
+            return tok.type == TokenType::ARG_DELIMITER;
+        }
+    );
+}
+
+/// Parse variable declarations for function parameters
+std::vector<Variable> ExpressionParser::parse_proto_params() {
+    std::vector<Variable> params;
+    if(cur_tok.type == TokenType::PAREN_BLOCK_START){
+        next_token();
+        while(cur_tok.type != TokenType::PAREN_BLOCK_END){
+            if(cur_tok.type != TokenType::ARG_DELIMITER){
+                throw ParserException("Expected colon", cur_tok);
+            }
+            next_token();
+            if(cur_tok.type != TokenType::IDENTIFIER){
+                throw ParserException("Expected identifier", cur_tok);
+            }
+            params.push_back(parse_variable());
+            next_token();
+        }
+        next_token();
+    }
+    return params;
 }
 /// Create a new identifier reference for use in the AST
 /// Yields a list of identifiers that match
 /// TODOO: Centralize the documentation of priority
 /// Priorities: scope_vars, global_vars, constants, functions
-std::vector<UNIQUE(IdentRefExpr)> ExpressionParser::get_ident_ref(std::string_view ident_name){
-    std::vector<UNIQUE(IdentRefExpr)> idents;
-    if(this->scope_vars.find(ident_name) != this->scope_vars.end()){
-        auto var = this->scope_vars[ident_name];
-        idents.push_back(std::make_unique<IdentRefExpr>(cur_tok.location, var.get_type(), std::string{var.get_name()}, IdentType::VARIABLE));
+std::vector<IdentStmt *> ExpressionParser::get_ident_ref(std::string ident_name){
+    std::vector<IdentStmt *> idents;
+    if(this->state->scope_vars.find(ident_name) != this->state->scope_vars.end()){
+        auto var = this->state->scope_vars[ident_name];
+        idents.push_back(new IdentStmt(cur_tok.location, var.get_type(), this->state, IdentType::VARIABLE, var));
     }
-    if(this->global_vars.find(ident_name) != this->global_vars.end()){
-        auto var = this->global_vars[ident_name];
-        idents.push_back(std::make_unique<IdentRefExpr>(cur_tok.location, var.get_type(), std::string{var.get_name()}, IdentType::GLOBAL_VARIABLE));
+    if(this->state->global_vars.find(ident_name) != this->state->global_vars.end()){
+        auto var = this->state->global_vars[ident_name];
+        idents.push_back(new IdentStmt(cur_tok.location, var.get_type(), this->state, IdentType::GLOBAL_VARIABLE, var));
     }
-    if(this->constants.find(ident_name) != this->constants.end()){
-        auto const_ = this->constants[ident_name];
-        idents.push_back(std::make_unique<IdentRefExpr>(cur_tok.location, const_.get_type(), std::string{const_.get_name()}, IdentType::CONSTANT));
+    if(this->state->constants.find(ident_name) != this->state->constants.end()){
+        auto const_ = this->state->constants[ident_name];
+        idents.push_back(new IdentStmt(cur_tok.location, const_.get_type(), this->state, IdentType::CONSTANT, const_));
     }
-    if(this->prototypes.find(ident_name) != this->prototypes.end()){
-        auto proto = this->prototypes[ident_name];
-        idents.push_back(std::make_unique<IdentRefExpr>(cur_tok.location, proto.get_return_type(), std::string{proto.get_name()}, IdentType::FUNCTION));
-    }    
-    if(idents.size() == 0) {
-        throw ParserException("Identifier not found", this->cur_tok.location);
-    }   
+    if(this->state->prototypes.find(ident_name) != this->state->prototypes.end()){
+        auto proto = this->state->prototypes[ident_name];
+        idents.push_back(new IdentStmt(cur_tok.location, proto.get_return_type(), this->state, IdentType::VARIABLE, proto));
+    }      
     return idents;
 }
 
 
-std::vector<UNIQUE(Statement)> ExpressionParser::parse_program(){
-    std::vector<UNIQUE(Statement)> statements;
-
-    int test;
-
+std::vector<statements::Statement *> ExpressionParser::parse_program(){
+    std::vector<statements::Statement *> statements;
+    while(!this->at_eof){
+        statements.push_back(parse_any());
+    }
+    std::cout << this->state->dump() << std::endl;
     return statements;
 }
 
 
-UNIQUE(Statement) ExpressionParser::parse_primary(){
-    UNIQUE(Statement) ret_expr;
+statements::Statement *ExpressionParser::parse_primary(){
+    std::cout << this->cur_tok.display() << std::endl;
+    statements::Statement *ret_expr;
     if(this->at_eof){
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
+        throw ParserException("Unexpected end of file", this->cur_tok);
     }
     switch(this->cur_tok.type){
         case TokenType::KEYWORD:
@@ -154,132 +175,336 @@ UNIQUE(Statement) ExpressionParser::parse_primary(){
             break;
         default:
             auto err_string = "Unexpected token" + this->cur_tok.display();
-            throw ParserException(err_string.c_str(), this->cur_tok.location);
+            throw ParserException(err_string.c_str(), this->cur_tok);
     }
     return ret_expr;
 }
 
-UNIQUE(Statement) ExpressionParser::parse_any(){
+statements::Statement *ExpressionParser::parse_any(){
     if(this->at_eof)
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
+        throw ParserException("Unexpected end of file", this->cur_tok);
 
     auto stmt = parse_primary();
     
     // if the type is invalid, an error has occurred
     if(stmt->get_type() == ExprType::INVALID)
-        throw ParserException("Invalid statement", this->cur_tok.location);
+        throw ParserException("Invalid statement", this->cur_tok);
 
     // else start parsing a binary expression
     // cast the statement into an expression
     /// TODO: Check if this causes a memory leak
-    auto expr = recast_base_pointer<Statement, Expression>(std::move(stmt));
-    return parse_binary_expr(0, std::make_unique<Expression>(*expr));
-}
-
-UNIQUE(Statement) ExpressionParser::parse_statement(){
-    if(this->at_eof)
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
-    auto stmt = parse_primary();
-    // if the type is none then it's a valid statement
-    if(stmt->get_type() != ExprType::NONE)
-        throw ParserException("Tried to parse statement got but Exception", this->cur_tok.location); 
+    if(this->peek_token().type == TokenType::OPERATOR)
+        return parse_binary_expr(0, stmt);
     else
         return stmt;
 }
 
-UNIQUE(Expression) ExpressionParser::parse_expression(){
+statements::Statement * ExpressionParser::parse_statement(){
+    if(this->at_eof)
+        throw ParserException("Unexpected end of file", this->cur_tok);
+    auto stmt = parse_primary();
+    // if the type is none then it's a valid statement
+    if(stmt->get_type() != ExprType::NONE)
+        throw ParserException("Tried to parse statement got but Exception", this->cur_tok); 
+    else
+        return stmt;
+}
+
+statements::Statement *ExpressionParser::parse_expression(){
     // a simple check for a valid type should be enough
     if(this->at_eof)
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
+        throw ParserException("Unexpected end of file", this->cur_tok);
     auto stmt = parse_any();
+    
     if(stmt->get_type() == ExprType::INVALID && stmt->get_type() != ExprType::NONE){
         auto err_string = "Unexpected token" + this->cur_tok.display();
-        throw ParserException("Invalid expression", this->cur_tok.location);
+        throw ParserException("Invalid expression", this->cur_tok);
     }
-    return recast_base_pointer<Statement, Expression>(std::move(stmt));
+    return stmt;
 }
 
 /// Parse an expression keyword
-UNIQUE(Statement) ExpressionParser::parse_keyword(){
-    throw NotImplementedException("Keyword parsing not implemented");
+statements::Statement * ExpressionParser::parse_keyword(){
+    auto keyword = this->cur_tok.value.as_keyword();
+    this->next_token();
+    switch(keyword){
+        /// TODO: make all definitions return a identref instead of parsing the next statement (Will require automatic discard)
+        case Keyword::CONSTANT:
+            parse_constant_def();
+            return parse_any();
+        case Keyword::DEFINE:
+            return parse_variable_def();
+        case Keyword::FUNCTION:
+            return parse_function_def();
+        case Keyword::IF:
+        case Keyword::WHILE:
+            return parse_control_stmt(keyword);
+        case Keyword::IMPORT:
+            parse_import();
+            return parse_any();
+        default:
+            throw ParserException("Invalid keyword", this->cur_tok);
+    }
+    throw ParserException("Invalid keyword", this->cur_tok);
 }
 
 /// Parse an integer literal
-UNIQUE(statements::Statement) ExpressionParser::parse_int_literal_expr(){
-    throw NotImplementedException("Integer literal parsing not implemented");
+statements::Statement * ExpressionParser::parse_int_literal_expr(){
+    // no need to check anything, just return it
+    auto literal = new LiteralStmt(cur_tok.location, ExprType::INTEGER, this->state, this->cur_tok.value.as_integer());
+    this->next_token();
+    return literal;
 }
 /// Parse a string literal
-UNIQUE(statements::Statement) ExpressionParser::parse_string_literal_expr(){
-    throw NotImplementedException("String literal parsing not implemented");
+statements::Statement * ExpressionParser::parse_string_literal_expr(){
+    if(this->at_eof)
+        throw ParserException("Unexpected end of file", this->cur_tok);
+    if(this->cur_tok.type != TokenType::STRING_LITERAL)
+        throw ParserException("Expected string literal", this->cur_tok);
+    auto strval = this->cur_tok.value.as_string();
+    auto strid = this->state->anon_global_vars.size();
+    auto strref = "_anon_str_" + std::to_string(strid);
+    this->state->anon_global_vars.push_back(Constant(strref, ExprType::POINTER, strval.size(), strval));
+    auto retval= new LiteralStmt(this->cur_tok.location, ExprType::POINTER, this->state, strref);
+    this->next_token();
+    return retval;
 }
+
 /// Parse an intrinsic function call
-UNIQUE(statements::Statement) ExpressionParser::parse_intrinsic(){
-    throw NotImplementedException("Intrinsic parsing not implemented");
+statements::Statement * ExpressionParser::parse_intrinsic(){
+    std::cout << "Parsing intrinsic" << std::endl;
+    auto intrinsic = this->cur_tok.value.as_intrinsic();
+    ExprType ret_type = ExprType::NONE;
+    auto prev_tok = this->cur_tok;
+    this->next_token();
+    // collect args
+    switch(intrinsic){
+        case Intrinsic::SYSCALL0:
+        case Intrinsic::SYSCALL1:
+        case Intrinsic::SYSCALL2:
+        case Intrinsic::SYSCALL3:
+        case Intrinsic::SYSCALL4:
+        case Intrinsic::SYSCALL5:
+        {
+            std::cout << "TODO: ARG COUNT CHECK FOR SYSCALL" << std::endl;
+            auto args = parse_call_args();
+            this->next_token();
+            if(args->get_size() < 1)
+                throw ParserException("Expected at least one argument", prev_tok);
+            if(args->get_size() > 6)
+                throw ParserException("Expected at most 6 arguments", prev_tok);
+            return new IntrinsicStmt(prev_tok.location, ExprType::INTEGER, this->state, intrinsic, args);
+        }
+
+        case Intrinsic::PRINT:
+        case Intrinsic::ADDRESS_OF:
+        case Intrinsic::LOAD8:
+        case Intrinsic::LOAD16:
+        case Intrinsic::LOAD32:
+        case Intrinsic::LOAD64:
+        case Intrinsic::ALLOCATE:
+        {
+            auto args = parse_call_args();
+            this->next_token();
+            if(args->get_size() != 1)
+                throw ParserException("Expected 1 argument for print", prev_tok);
+            break;
+        }
+        case Intrinsic::STORE8:
+        case Intrinsic::STORE16:
+        case Intrinsic::STORE32:
+        case Intrinsic::STORE64:
+        {
+            auto args = parse_call_args();
+            this->next_token();
+            if(args->get_size() != 2)
+                throw ParserException("Expected 2 arguments for store", prev_tok);
+            return new IntrinsicStmt(prev_tok.location, ExprType::NONE, this->state, intrinsic, args);
+        }  
+        case Intrinsic::RETURN:
+        {
+            if(this->cur_tok.type == TokenType::TYPE){
+                if(this->cur_tok.value.as_expr_type() == ExprType::NONE)
+                    return new IntrinsicStmt(prev_tok.location, ExprType::NONE, this->state, intrinsic, nullptr);
+            }
+            auto expr = parse_expression();
+            return new IntrinsicStmt(prev_tok.location, expr->get_type(), this->state, intrinsic, expr);
+        }
+        case Intrinsic::DROP:
+        {
+            auto expr = parse_any();
+            return new IntrinsicStmt(prev_tok.location, ExprType::NONE, this->state, intrinsic, expr);
+        }
+        case Intrinsic::INVALID:
+            break;
+    }
+    throw ParserException("Invalid intrinsic", this->cur_tok);
 }
 /// Parse a type cast
-UNIQUE(statements::Statement) ExpressionParser::parse_type_cast(){
-    throw NotImplementedException("Type cast parsing not implemented");
+statements::Statement * ExpressionParser::parse_type_cast(){
+    if(this->at_eof)
+        throw ParserException("Unexpected end of file", this->cur_tok);
+    if(this->cur_tok.type != TokenType::TYPE)
+        throw ParserException("Expected type for type cast", this->cur_tok);
+    auto type = this->cur_tok.value.as_expr_type();
+    this->next_token();
+    auto paren_content = parse_call_args()->get_statements();
+    if(paren_content.size() != 1)
+        throw ParserException("Expected one argument for type cast", this->cur_tok);
+    auto ret_item = new Statement(*paren_content[0]);
+    ret_item->set_type(type);
+    return ret_item;
 }
 
 
-UNIQUE(IdentRefExpr) ExpressionParser::parse_ident(){
+IdentStmt *ExpressionParser::parse_ident(){
     throw NotImplementedException("ExpressionParser::parse_ident is not implemented yet");
 }
 
-UNIQUE(statements::BinaryExpr) ExpressionParser::parse_binary_expr(int precedence, UNIQUE(statements::Expression) left){
+Statement *ExpressionParser::parse_binary_expr(int precedence, Statement *left){
+    std::cout << "Parsing binary expr" << std::endl;
     if(this->at_eof)
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
+        return left;
         //return recast_base_pointer<Expression, BinaryExpr>(std::move(left));
     while(this->cur_tok.type == TokenType::OPERATOR){
         int tok_prec = get_precedence();
         if(tok_prec < precedence)
-            return recast_base_pointer<Expression, BinaryExpr>(std::move(left));
+            return left;
         Token op_tok = this->cur_tok;
         this->next_token();
         if(this->at_eof)
-            throw ParserException("Unexpected end of file", this->cur_tok.location);
+            throw ParserException("Unexpected end of file", this->cur_tok);
         
         /// TODO: Better error handling here
         auto right = parse_expression();
         int next_prec = get_precedence();
         if(tok_prec < next_prec){
             auto prev_tok = this->cur_tok;
-            right = parse_binary_expr(tok_prec + 1, std::move(right));
+            right = parse_binary_expr(tok_prec + 1, right);
         }
-        left = std::make_unique<BinaryExpr>(op_tok.location, left->get_type(), op_tok.value.as.operator_, std::move(left), std::move(right));
+        left = new BinaryStmt(op_tok.location, left->get_type(), this->state, op_tok.value.as_operator(), left, right);
     }
-    return recast_base_pointer<Expression, BinaryExpr>(std::move(left));
+    return left;
 }
 
-FunProto ExpressionParser::parse_fun_proto(){
+FunProto &ExpressionParser::parse_fun_proto(){
     if(this->at_eof)
-        throw ParserException("Unexpected end of file", this->cur_tok.location);
+        throw ParserException("Unexpected end of file", this->cur_tok);
     if(this->cur_tok.type != TokenType::KEYWORD)
-        throw ParserException("Expected keyword", this->cur_tok.location);
-    if(this->cur_tok.value.as.keyword != Keyword::FUNCTION)
-        throw ParserException("Expected keyword 'function'", this->cur_tok.location);
+        throw ParserException("Expected keyword", this->cur_tok);
+    if(this->cur_tok.value.as_keyword() != Keyword::FUNCTION)
+        throw ParserException("Expected keyword 'function'", this->cur_tok);
     auto prev_tok = this->cur_tok;
     this->next_token();
     if(this->cur_tok.type != TokenType::IDENTIFIER)
-        throw ParserException("Expected identifier for function prototype", this->cur_tok.location);
-    auto ident = parse_ident();
-    if(ident->get_ident_kind() != IdentType::INVALID){
-        auto err_string = "Redefinition of identifier of type " 
-                          + std::string(get_enum_name(ident->get_ident_kind()));
-                          + " first defined at " + ident->get_location().display();
-        throw ParserException(err_string.c_str(), this->cur_tok.location);
-    }
+        throw ParserException("Expected identifier for function prototype", this->cur_tok);
     std::string name = this->cur_tok.text;
+    std::cout << "Parsing function prototype: " << name << std::endl;
+    
+    auto references = get_ident_ref(name);
+    for(auto &ref : references){
+        if(get_ident_precedence(ref->get_ident_kind()) == get_ident_precedence(IdentType::FUNCTION))
+            throw ParserException("Function name already in use", this->cur_tok);
+    }
+
     this->next_token();
     auto params = parse_proto_params();
-    this->next_token();
     /// TODO: Check if this is safe
-    if(this->cur_tok.type != TokenType::KEYWORD || this->cur_tok.value.as.keyword != Keyword::YIELDS)
-        throw ParserException("Expected keyword 'yields' for function prototype", this->cur_tok.location);
+    if(this->cur_tok.type != TokenType::KEYWORD || this->cur_tok.value.as_keyword() != Keyword::YIELDS)
+        throw ParserException("Expected keyword 'yields' for function prototype", this->cur_tok);
     this->next_token();
     if(this->cur_tok.type != TokenType::TYPE)
-        throw ParserException("Expected type for function prototype", this->cur_tok.location);
-    auto ret_type = this->cur_tok.value.as.expr_type;
+        throw ParserException("Expected type for function prototype", this->cur_tok);
+    auto ret_type = this->cur_tok.value.as_expr_type();
     this->next_token();
-    return FunProto(name, params, ret_type);   
+    auto ret_val = FunProto(name, params, ret_type);   
+    this->state->prototypes.emplace(name, ret_val);
+    return this->state->prototypes.at(name);
+}
+
+FunStmt *ExpressionParser::parse_function_def(){
+    std::cout << "Parsing function" << std::endl;
+    if(this->at_eof)
+        throw ParserException("Unexpected end of file", this->cur_tok);
+    auto prev_tok = this->cur_tok;
+    auto proto = parse_fun_proto();
+    auto body = parse_function_body();
+    if(proto.get_return_type() != body->get_type()){
+        throw ParserException("Function body does not match return type", this->cur_tok);
+    }
+    this->next_token();
+    std::cout << "Function parsed, name is " << proto.get_name() << std::endl;
+    return new FunStmt(prev_tok.location, this->state, proto, body);
+}
+
+Variable ExpressionParser::parse_variable(){
+    auto prev_tok = this->cur_tok;
+    auto name = this->cur_tok.text;
+    auto references = get_ident_ref(cur_tok.text);
+    IdentType sel_type = IdentType::INVALID;
+    if(this->state->in_scope){
+        for(auto &ref : references){
+            if(get_ident_precedence(ref->get_ident_kind()) >= get_ident_precedence(IdentType::VARIABLE)){
+                throw ParserException((new std::string("Redefinition of identifier '" + cur_tok.text + "', first defined at " + ref->get_loc().display()))->c_str(), this->cur_tok);                
+            }
+        }
+        sel_type = IdentType::VARIABLE;
+    }
+    else {
+        for(auto &ref : references){
+            if(get_ident_precedence(ref->get_ident_kind()) >= get_ident_precedence(IdentType::VARIABLE)){
+                throw ParserException((new std::string("Redefinition of identifier '" + cur_tok.text + "', first defined at " + ref->get_loc().display()))->c_str(), this->cur_tok);                
+            }
+        }
+        sel_type = IdentType::GLOBAL_VARIABLE;
+    }
+    this->next_token();
+    /// TODO: Remove 'as' keyword
+    if(this->cur_tok.text != "as"){
+        throw ParserException("Expected 'as' keyword at variable definition", this->cur_tok);
+    }
+    this->next_token();
+    if(this->cur_tok.type != TokenType::TYPE)
+        throw ParserException("Expected type for variable definition", this->cur_tok);
+    auto type = this->cur_tok.value.as_expr_type();
+    this->next_token();
+    return Variable(name, type, 8);
+}
+
+void ExpressionParser::parse_constant_def(){
+
+    throw NotImplementedException("ExpressionParser::parse_constant_def is not implemented yet");
+}
+
+
+IdentStmt *ExpressionParser::parse_variable_def(){
+    std::cout << "Parsing variable definition" << std::endl;
+    auto prev_tok = this->cur_tok;
+    auto result = parse_variable();
+    auto name = result.get_name();
+    Statement *param = nullptr;
+    /// TODO: Remove 'is' keyword
+    if(this->cur_tok.text == "is"){
+        this->next_token();
+        param = parse_expression();
+    }
+    if(this->state->in_scope){
+        /// TODO: More flexible size
+        this->state->global_vars.emplace(name, result);
+        this->next_token();
+        return new IdentStmt(prev_tok.location, ExprType::NONE, this->state, IdentType::VARIABLE, this->state->global_vars.at(name), param);
+    }
+    else {
+        this->state->scope_vars.emplace(name, result);
+        this->next_token();
+        return new IdentStmt(prev_tok.location, ExprType::NONE, this->state, IdentType::GLOBAL_VARIABLE, this->state->scope_vars.at(name), param);
+    }
+}
+
+void ExpressionParser::parse_import(){
+    throw NotImplementedException("ExpressionParser::parse_import is not implemented yet");
+}
+
+statements::ControlStmt *ExpressionParser::parse_control_stmt(Keyword kind){
+    throw NotImplementedException("ExpressionParser::parse_control_stmt is not implemented yet");
 }

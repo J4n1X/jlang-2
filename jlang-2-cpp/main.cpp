@@ -2,6 +2,7 @@
 #include "JlangObjects.hpp"
 #include "Tokenizer.hpp"
 #include "ExpressionParser.hpp"
+#include "JlangExceptions.hpp"
 
 
 int main(int argc, char** argv) {
@@ -10,12 +11,20 @@ int main(int argc, char** argv) {
         return 1;
     }
     auto tokenizer = jlang::Tokenizer(argv[1]);
-    for(auto& token : tokenizer.get_tokens()){
+    /*for(auto& token : tokenizer.get_tokens()){
         std::cout << token.display() << '\n';
-    }
+    }*/
 
     auto test = jlang::parser::ExpressionParser(tokenizer.get_tokens());
-    auto statements = test.parse_program();
+    try
+    {
+        auto statements = test.parse_program();
+    }
+    catch(jlang::ParserException& e)
+    {
+        std::cout << e.what() << " \"" << e.which().text << "\" at " << e.where() <<'\n';
+        throw e;
+    }
 
     /*
     auto token = tokenizer.get_tokens()[0];

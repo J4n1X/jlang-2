@@ -2,8 +2,10 @@
 #define JLANGOBJECTS_H_
 #include <string>
 #include <vector>
+#include <map>
 #include <concepts>
-#include <compare>
+#include <variant>
+#include <sstream>
 
 #include "strhash.hpp"
 //#include "Statements.hpp"
@@ -39,7 +41,6 @@ namespace jlang {
         o(WHILE)       /* while conditional designator */\
         o(FUNCTION)    /* function definition designator */\
         o(DEFINE)      /* variable definition designator */\
-        o(ALLOCATE)    /* array allocation designator */\
         o(CONSTANT)    /* constant statement designator */\
         o(DO)          /* block open */\
         o(IS)          /* assignment operator and block open */\
@@ -81,6 +82,7 @@ namespace jlang {
         o(SYSCALL5) \
         o(PRINT) \
         o(ADDRESS_OF) \
+        o(ALLOCATE)    /* array allocation designator */\
         o(DROP) \
         o(LOAD8) \
         o(LOAD16) \
@@ -118,66 +120,74 @@ namespace jlang {
         o(VARIABLE) \
         o(GLOBAL_VARIABLE) \
         o(CONSTANT) \
-        o(FUNCTION)
+        o(FUNCTION)\
     
     #define o(n) n, 
     enum class IdentType { ENUM_IDENTTYPE(o) INVALID};
     #undef o
 
-    #define ENUM_IROBJTYPE(o) \
-        o(STATEMENT) \
-        o(EXPRESSION)
+    #define ENUM_STATEMENT(o) \
+    o(STATEMENT)\
+    o(EXPRESSION)\
+    o(BLOCK)           /* Parameter block */\
+    o(LITERAL)          /* Any compile time assignable or allocatable value */\
+    o(IDENT)            /* Read, define or set Constant, Variable or Function*/\
+    o(FUNCALL)          /* Function call */\
+    o(FUNCTION)        /* Function definition */\
+    o(INTRINSIC)        /* Compiler integrated functions */\
+    o(CONTROL)          /* Control flow statements */\
+    o(BINARY)
     
     #define o(n) n,
-    enum class IRObjType { ENUM_IROBJTYPE(o) INVALID};
+    enum class StatementType { ENUM_STATEMENT(o) };
     #undef o
+    
+    #define ENUM_CONTROL(o)\
+        o(IF)\
+        o(WHILE)
+    #define o(n) n,
+    enum class ControlType { ENUM_CONTROL(o) };
+    #undef o
+        
 
 #pragma endregion Enums
 
     typedef struct TokenValue_s{
-        union {
-            int64_t integer;
-            std::string *string;
-            Keyword keyword;
-            Operator operator_;
-            Intrinsic intrinsic;
-            ExprType expr_type;
-        } as;
-        bool needs_free;
+        private:
+        std::variant<int64_t, std::string, Keyword, Operator, Intrinsic, ExprType> value;
 
-        TokenValue_s(){
-            needs_free = false;
+        public:
+        TokenValue_s(){}
+        TokenValue_s(int64_t i) : value(i){}
+        TokenValue_s(std::string s) : value(s){}
+        TokenValue_s(Keyword k) : value(k){}
+        TokenValue_s(Operator o) : value(o){}
+        TokenValue_s(Intrinsic i) : value(i){}
+
+        TokenValue_s(ExprType e) : value(e){}
+
+        ~TokenValue_s() = default;
+
+        const int64_t &as_integer() const {
+            return std::get<int64_t>(value);
         }
-        TokenValue_s(int64_t i){
-            as.integer = i;
-            needs_free = false;
+        const std::string &as_string() const {
+            return std::get<std::string>(value);
         }
-        TokenValue_s(std::string s){
-            as.string = new std::string(s);
-            needs_free = true;
+        const Keyword &as_keyword() const {
+            return std::get<Keyword>(value);
         }
-        TokenValue_s(Keyword k){
-            as.keyword = k;
-            needs_free = false;
+        const Operator &as_operator() const {
+            return std::get<Operator>(value);
         }
-        TokenValue_s(Operator o){
-            as.operator_ = o;
-            needs_free = false;
+        const Intrinsic &as_intrinsic() const {
+            return std::get<Intrinsic>(value);
         }
-        TokenValue_s(Intrinsic i){
-            as.intrinsic = i;
-            needs_free = false;
-        }
-        TokenValue_s(ExprType e){
-            as.expr_type = e;
-            needs_free = false;
+        const ExprType &as_expr_type() const {
+            return std::get<ExprType>(value);
         }
 
-        ~TokenValue_s(){
-            /*if(needs_free){
-                delete as.string;
-            }*/
-        }	
+
     } TokenValue;
     
 #pragma region Implementation
@@ -275,6 +285,15 @@ namespace jlang {
         }
     }
 
+    JLDEF constexpr int get_ident_precedence(IdentType type){
+        switch(type){
+            case IdentType::FUNCTION: return 30;
+            case IdentType::VARIABLE: return 10;
+            case IdentType::CONSTANT: return 20;
+            default: return -1;
+        }
+    }
+
     #define o(n) case strhash::hash(#n): return Intrinsic::n;  
     JLDEF constexpr Intrinsic get_intrinsic_by_name(const char *name){
         switch(strhash::hash(name)){
@@ -356,43 +375,24 @@ namespace jlang {
     }
     #undef o
 
-    #define o(n) case strhash::hash(#n): return IRObjType::n;
-    JLDEF constexpr IRObjType get_ir_obj_type_by_name(const char *name){
-        switch(strhash::hash(name)){
-            ENUM_IROBJTYPE(o)
-            default:
-                return IRObjType::INVALID;
-        }
-    }
-    #undef o
-
-    #define o(n) case IRObjType::n: return "IROBJTYPE_"#n;
-    JLDEF constexpr const char *get_enum_name(IRObjType type){
-        switch(type){
-            ENUM_IROBJTYPE(o)
-            default: 
-                return "INVALID";
-        }
-    }
-
     JLDEF static std::string get_token_type_value_string(TokenType type, TokenValue value) {
             switch(type) {
                 case TokenType::INT_LITERAL:
-                    return std::to_string(value.as.integer);
+                    return std::to_string(value.as_integer());
                 case TokenType::STRING_LITERAL:
                 case TokenType::IDENTIFIER:
                 case TokenType::PAREN_BLOCK_START:
                 case TokenType::PAREN_BLOCK_END:
                 case TokenType::ARG_DELIMITER:
-                    return *value.as.string;
+                    return value.as_string();
                 case TokenType::TYPE:
-                    return std::string(get_enum_name(value.as.expr_type));
+                    return std::string(get_enum_name(value.as_expr_type()));
                 case TokenType::KEYWORD:
-                    return std::string(get_enum_name(value.as.keyword));
+                    return std::string(get_enum_name(value.as_keyword()));
                 case TokenType::OPERATOR:
-                    return std::string(get_enum_name(value.as.operator_));
+                    return std::string(get_enum_name(value.as_operator()));
                 case TokenType::INTRINSIC:
-                    return std::string(get_enum_name(value.as.intrinsic));
+                    return std::string(get_enum_name(value.as_intrinsic()));
                 default:
                     return "";
             }
@@ -410,22 +410,6 @@ namespace jlang {
         private:
             std::string message;
     };
-
-    
-    // template<typename T> 
-    // using CondChecker = struct CondChecker_s {
-    //     private:
-    //     T check_value;
-    //     std::function<bool(T)> check_func;
-    //     public:
-    //     CondChecker_s(T check_value, std::function<bool(T)> check_func) : check_value(check_value), check_func(check_func) {}
-    //     bool check() {
-    //         return check_func(check_value);
-    //     }
-    //     T get_value() {
-    //         return check_value;
-    //     }
-    // };
 
 
     /// \brief Contains the location of a token in a file.
@@ -479,16 +463,16 @@ namespace jlang {
     /// \brief Contains information about a defined variable
     class Variable {
         protected:
-        std::string_view name;
+        std::string name;
         ExprType type;
         size_t size; // in bytes
         public:
-        constexpr Variable(std::string_view name, ExprType type, size_t size) : name(name), type(type), size(size) {}
-        constexpr Variable() : name(""), type(ExprType::INVALID), size(0) {}
-        constexpr std::string_view get_name() const { return name; }
-        constexpr ExprType get_type() const { return type; }
-        constexpr size_t get_size() const { return size; }
-        auto operator<=>(const Variable&) const = default;
+        Variable(std::string name, ExprType type, size_t size) : name(name), type(type), size(size) {}
+        Variable() : name(""), type(ExprType::INVALID), size(0) {}
+        const std::string get_name() const { return name; }
+        const ExprType get_type() const { return type; }
+        const size_t get_size() const { return size; }
+        auto operator==(const Variable &other) const { return name == other.name && type == other.type; }
         auto operator==(const std::string &name) const {
             return this->name == name;
         }
@@ -497,28 +481,23 @@ namespace jlang {
     /// \brief Contains information and the value of a constant.
     class Constant : public Variable {
         private:
-        union {
-            uint64_t integer;
-            std::string *string;
-        } value;
+        std::variant<uint64_t, std::string> value;
         public:
-        constexpr Constant(std::string_view name, ExprType type, size_t size, uint64_t value) : Variable(name, type, size) {
-            this->value.integer = value;
+        Constant(std::string name, ExprType type, size_t size, uint64_t value) : Variable(name, type, size) {
+            this->value = value;
         }
-        constexpr Constant(std::string_view name, ExprType type, size_t size, std::string *value) : Variable(name, type, size) {
-            this->value.string = value;
+        Constant(std::string name, ExprType type, size_t size, std::string value) : Variable(name, type, size) {
+            this->value = value;
         }
-        constexpr Constant() : Variable() {
-            this->value.integer = 0;
-        }
-        constexpr uint64_t get_int_value() const { return value.integer; }
-        constexpr std::string *get_string_value() const { return value.string; }
+        Constant() : Variable() {}
+        const uint64_t &get_int_value() const { return std::get<uint64_t>(value); }
+        const std::string &get_string_value() const { return std::get<std::string>(value); }
         auto operator==(const Constant &other) const {
             bool cmp_trivial = this->name == other.name && this->type == other.type && this->size == other.size;
             if(this->type == ExprType::POINTER) {
-                return cmp_trivial && this->value.string == other.value.string;
+                return cmp_trivial && std::get<std::string>(this->value) == std::get<std::string>(other.value);
             } else {
-                return cmp_trivial && this->value.integer == other.value.integer;
+                return cmp_trivial && std::get<uint64_t>(this->value) == std::get<uint64_t>(other.value);
             }
         }
    };
@@ -526,18 +505,62 @@ namespace jlang {
     /// \brief Contains information about a function.
     class FunProto {
         private: 
-        std::string_view name;
+        std::string name;
         std::vector<Variable> args;
         ExprType return_type;
         public:
-        FunProto(std::string_view name, std::vector<Variable> args, ExprType return_type) : name(name), args(args), return_type(return_type) {}
+        FunProto(std::string name, std::vector<Variable> args, ExprType return_type) : name(name), args(args), return_type(return_type) {}
         FunProto() : name(""), args(std::vector<Variable>()), return_type(ExprType::INVALID) {}
-        constexpr std::string_view get_name() const { return name; }
+        const std::string &get_name() const { return name; }
         constexpr std::vector<Variable> &get_args() { return args; }
         constexpr ExprType get_return_type() const { return return_type; }
         bool operator==(const FunProto& fun) const {
             return name == fun.get_name() && return_type == fun.get_return_type();
         }
    };
+
+    typedef struct CompilerState_s {
+        std::vector<Token> tokens;
+        std::map<std::string, Constant> constants;
+        std::map<std::string, FunProto> prototypes;
+        std::map<std::string, Variable> global_vars;
+        std::map<std::string, Variable> scope_vars;
+        std::vector<Variable> anon_global_vars;
+        std::vector<Variable> anon_scope_vars;
+        bool in_scope;
+
+        const std::string dump(){
+            std::stringstream ss;
+            ss << "Constants: " << std::endl;
+            for(auto &[name, constant] : constants) {
+                ss << "bruh" << std::endl;
+                ss << constant.get_name() << " : " << get_enum_name(constant.get_type()) << " : " << constant.get_size() << std::endl;
+            }
+            ss << "Prototypes: " << std::endl;
+            for(auto &[name, proto] : prototypes) {
+                ss << name << " : " << get_enum_name(proto.get_return_type()) << std::endl;
+                for(auto &arg : proto.get_args()) {
+                    ss << "    " << arg.get_name() << " : " << get_enum_name(arg.get_type()) << " : " << arg.get_size() << std::endl;
+                }
+            }
+            ss << "Global Variables: " << std::endl;
+            for(auto &[name, var] : global_vars) {
+                ss << var.get_name() << " : " << get_enum_name(var.get_type()) << " : " << var.get_size() << std::endl;
+            }
+            ss << "Scope Variables: " << std::endl;
+            for(auto &[name, var] : scope_vars) {
+                ss << var.get_name() << " : " << get_enum_name(var.get_type()) << " : " << var.get_size() << std::endl;
+            }
+            return ss.str();
+        }
+    } CompilerState;
+
 }
+
+#undef ENUM_TOKENTYPE
+#undef ENUM_KEYWORD
+#undef ENUM_OPERATOR
+#undef ENUM_INTRINSIC
+#undef ENUM_STATEMENT
+#undef ENUM_CONTROL
 #endif // JLANGOBJECTS_H_

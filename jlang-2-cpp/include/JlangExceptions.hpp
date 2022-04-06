@@ -8,15 +8,15 @@
 
 namespace jlang {
 class ParserException : std::exception {
-    const char *message;
+    std::string message;
     const Token token;
 
   public:
-    ParserException(const char *msg, const Token token)
+    ParserException(std::string msg, const Token token)
         : message(msg), token(token) {}
     const char *what() const throw() {
         // copy the stringstream into a string
-        return message;
+        return message.c_str();
     }
     const Token &which() const throw() { return token; }
     const std::string where() const throw() { return token.location.display(); }

@@ -68,10 +68,9 @@ enum class Operator { ENUM_OPERATOR(o) INVALID };
 #define ENUM_INTRINSIC(o)                                                      \
     o(RETURN) /* function return */                                            \
         o(SYSCALL0) o(SYSCALL1) o(SYSCALL2) o(SYSCALL3) o(SYSCALL4)            \
-            o(SYSCALL5) o(PRINT) o(ADDRESS_OF)                                 \
-                o(ALLOCATE) /* array allocation designator */                  \
-        o(DROP) o(LOAD8) o(LOAD16) o(LOAD32) o(LOAD64) o(STORE8) o(STORE16)    \
-            o(STORE32) o(STORE64)
+            o(SYSCALL5) o(PRINT) o(ADDRESS_OF) o(ALLOCATE) o(DROP) o(LOAD8)    \
+                o(LOAD16) o(LOAD32) o(LOAD64) o(STORE8) o(STORE16) o(STORE32)  \
+                    o(STORE64)
 
 #define o(n) n,
 enum class Intrinsic { ENUM_INTRINSIC(o) INVALID };
@@ -388,6 +387,18 @@ JLDEF constexpr IdentType get_ident_type_by_name(const char *name) {
 JLDEF constexpr const char *get_enum_name(IdentType type) {
     switch (type) {
         ENUM_IDENTTYPE(o)
+    default:
+        return "INVALID";
+    }
+}
+#undef o
+
+#define o(n)                                                                   \
+    case StatementType::n:                                                     \
+        return "STATEMENTTYPE_" #n;
+JLDEF constexpr const char *get_enum_name(StatementType type) {
+    switch (type) {
+        ENUM_STATEMENT(o)
     default:
         return "INVALID";
     }

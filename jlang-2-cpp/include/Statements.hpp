@@ -96,6 +96,12 @@ struct IdentStmt : public Statement {
           ident_kind(ident_kind), target(target), param(param) {}
 
     const auto get_ident_kind() const { return this->ident_kind; }
+    void set_param(Statement *param) { this->param = param; }
+    ~IdentStmt() {
+        if (this->param != nullptr) {
+            delete this->param;
+        }
+    }
 };
 
 struct FunStmt : public Statement {
@@ -112,6 +118,7 @@ struct FunStmt : public Statement {
     ~FunStmt() override { delete this->body; }
 };
 
+/*
 struct FunCallStmt : public Statement {
   private:
     FunProto proto;
@@ -124,6 +131,7 @@ struct FunCallStmt : public Statement {
         : Statement(loc, type, StatementType::FUNCALL, parser), proto(proto),
           args(args) {}
 };
+*/
 
 struct IntrinsicStmt : public Statement {
   private:

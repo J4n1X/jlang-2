@@ -66,18 +66,18 @@ BlockStmt *ExpressionParser::parse_function_body() {
 
     ExprType ret_type = ExprType::NONE;
     auto statements = block->get_statements();
-    if (statements.back()->get_type() != ExprType::NONE) {
-        if (statements.back()->get_kind() == StatementType::INTRINSIC) {
-            if (((IntrinsicStmt *)statements.back())->get_intrinsic_kind() ==
-                Intrinsic::RETURN)
-                ret_type = statements.back()->get_type();
-            else
-                throw ParserException("Unhandled data in function body",
-                                      cur_tok);
-        } else {
-            throw ParserException("Unhandled data in function body", cur_tok);
+
+    for (auto &stmt : statements) {
+        if (stmt->get_kind() == StatementType::INTRINSIC) {
+            if (((IntrinsicStmt *)stmt)->get_intrinsic_kind() ==
+                Intrinsic::RETURN) {
+                std::cout << "Found return statement" << '\n';
+                ret_type = stmt->get_type();
+                break;
+            }
         }
     }
+
     block->set_type(ret_type);
     this->next_token();
     return block;
@@ -93,58 +93,91 @@ BlockStmt *ExpressionParser::parse_call_args() {
 /// Parse variable declarations for function parameters
 std::vector<Variable> ExpressionParser::parse_proto_params() {
     std::vector<Variable> params;
-    if (cur_tok.type == TokenType::PAREN_BLOCK_START) {
+    if (cur_tok.type != TokenType::PAREN_BLOCK_START) {
+        throw ParserException("Expected start of parameter list, but got " +
+                                  cur_tok.text,
+                              cur_tok);
+    } else {
         next_token();
-        while (cur_tok.type != TokenType::PAREN_BLOCK_END) {
-            if (cur_tok.type != TokenType::ARG_DELIMITER) {
-                throw ParserException("Expected colon", cur_tok);
+        if (cur_tok.type != TokenType::PAREN_BLOCK_END) {
+            while (true) {
+                if (cur_tok.type != TokenType::IDENTIFIER) {
+                    throw ParserException("Expected identifier", cur_tok);
+                }
+                params.push_back(parse_variable());
+                if (cur_tok.type == TokenType::PAREN_BLOCK_END)
+                    break;
+                if (cur_tok.type != TokenType::ARG_DELIMITER) {
+                    throw ParserException("Expected colon", cur_tok);
+                }
+                next_token();
             }
-            next_token();
-            if (cur_tok.type != TokenType::IDENTIFIER) {
-                throw ParserException("Expected identifier", cur_tok);
-            }
-            params.push_back(parse_variable());
-            next_token();
         }
-        next_token();
     }
+    next_token();
     return params;
 }
+
+std::vector<IdentLookup>
+ExpressionParser::get_ident_list(std::string ident_name) {
+    std::vector<IdentLookup> idents;
+    if (this->state->scope_vars.find(ident_name) !=
+        this->state->scope_vars.end()) {
+        auto var = this->state->scope_vars[ident_name];
+        idents.push_back(IdentLookup(var, IdentType::VARIABLE));
+    }
+    if (this->state->global_vars.find(ident_name) !=
+        this->state->global_vars.end()) {
+        auto var = this->state->global_vars[ident_name];
+        idents.push_back(IdentLookup(var, IdentType::GLOBAL_VARIABLE));
+    }
+    if (this->state->constants.find(ident_name) !=
+        this->state->constants.end()) {
+        auto const_ = this->state->constants[ident_name];
+        idents.push_back(IdentLookup(const_));
+    }
+    if (this->state->prototypes.find(ident_name) !=
+        this->state->prototypes.end()) {
+        auto proto = this->state->prototypes[ident_name];
+        idents.push_back(IdentLookup(proto));
+    }
+    return idents;
+}
+
 /// Create a new identifier reference for use in the AST
 /// Yields a list of identifiers that match
 /// TODOO: Centralize the documentation of priority
 /// Priorities: scope_vars, global_vars, constants, functions
 std::vector<IdentStmt *>
 ExpressionParser::get_ident_ref(std::string ident_name) {
-    std::vector<IdentStmt *> idents;
-    if (this->state->scope_vars.find(ident_name) !=
-        this->state->scope_vars.end()) {
-        auto var = this->state->scope_vars[ident_name];
-        idents.push_back(new IdentStmt(cur_tok.location, var.get_type(),
-                                       this->state, IdentType::VARIABLE, var));
+    auto idents = get_ident_list(ident_name);
+    std::vector<IdentStmt *> ret_idents;
+    for (auto &ident : idents) {
+        switch (ident.get_kind()) {
+        case IdentType::VARIABLE:
+        case IdentType::GLOBAL_VARIABLE: {
+            auto var = ident.get_variable();
+            ret_idents.push_back(new IdentStmt(cur_tok.location, var.get_type(),
+                                               state, ident.get_kind(), var));
+        }
+        case IdentType::CONSTANT: {
+            auto const_ = ident.get_constant();
+            ret_idents.push_back(new IdentStmt(cur_tok.location,
+                                               const_.get_type(), state,
+                                               ident.get_kind(), const_));
+        }
+        case IdentType::FUNCTION: {
+            auto proto = ident.get_function();
+            ret_idents.push_back(new IdentStmt(cur_tok.location,
+                                               proto.get_return_type(), state,
+                                               ident.get_kind(), proto));
+        }
+        default:
+            throw ParserException("Unhandled identifier type", cur_tok);
+        }
     }
-    if (this->state->global_vars.find(ident_name) !=
-        this->state->global_vars.end()) {
-        auto var = this->state->global_vars[ident_name];
-        idents.push_back(new IdentStmt(cur_tok.location, var.get_type(),
-                                       this->state, IdentType::GLOBAL_VARIABLE,
-                                       var));
-    }
-    if (this->state->constants.find(ident_name) !=
-        this->state->constants.end()) {
-        auto const_ = this->state->constants[ident_name];
-        idents.push_back(new IdentStmt(cur_tok.location, const_.get_type(),
-                                       this->state, IdentType::CONSTANT,
-                                       const_));
-    }
-    if (this->state->prototypes.find(ident_name) !=
-        this->state->prototypes.end()) {
-        auto proto = this->state->prototypes[ident_name];
-        idents.push_back(new IdentStmt(cur_tok.location,
-                                       proto.get_return_type(), this->state,
-                                       IdentType::VARIABLE, proto));
-    }
-    return idents;
+    next_token();
+    return ret_idents;
 }
 
 std::vector<statements::Statement *> ExpressionParser::parse_program() {
@@ -227,7 +260,7 @@ statements::Statement *ExpressionParser::parse_expression() {
 
     if (stmt->get_type() == ExprType::INVALID &&
         stmt->get_type() != ExprType::NONE) {
-        auto err_string = "Unexpected token" + this->cur_tok.display();
+        auto err_string = "Unexpected token " + this->cur_tok.display();
         throw ParserException("Invalid expression", this->cur_tok);
     }
     return stmt;
@@ -236,7 +269,6 @@ statements::Statement *ExpressionParser::parse_expression() {
 /// Parse an expression keyword
 statements::Statement *ExpressionParser::parse_keyword() {
     auto keyword = this->cur_tok.value.as_keyword();
-    this->next_token();
     switch (keyword) {
     /// TODO: make all definitions return a identref instead of parsing the
     /// next statement (Will require automatic discard)
@@ -256,7 +288,6 @@ statements::Statement *ExpressionParser::parse_keyword() {
     default:
         throw ParserException("Invalid keyword", this->cur_tok);
     }
-    throw ParserException("Invalid keyword", this->cur_tok);
 }
 
 /// Parse an integer literal
@@ -373,8 +404,50 @@ statements::Statement *ExpressionParser::parse_type_cast() {
 }
 
 IdentStmt *ExpressionParser::parse_ident() {
-    throw NotImplementedException(
-        "ExpressionParser::parse_ident is not implemented yet");
+    auto prev_tok = cur_tok;
+    auto idents = get_ident_list(this->cur_tok.value.as_string());
+    if (idents.size() < 1) {
+        throw ParserException("Invalid identifier", this->cur_tok);
+    }
+    auto paren_check_tok = this->next_token();
+    if (paren_check_tok.type == TokenType::PAREN_BLOCK_START) {
+        std::cout << "Parsing function call" << std::endl;
+        // filter out all but the first one of function type
+        idents.erase(std::remove_if(idents.begin(), idents.end(),
+                                    [](const auto &ident) {
+                                        return ident.get_kind() !=
+                                               IdentType::FUNCTION;
+                                    }),
+                     idents.end());
+        if (idents.size() < 1) {
+            throw ParserException("Invalid identifier", this->cur_tok);
+        }
+        auto proto = idents[0].get_function();
+        auto args = parse_call_args();
+        if (proto.get_args().size() != args->get_size()) {
+            throw ParserException("Invalid number of arguments for function " +
+                                      proto.get_name(),
+                                  this->cur_tok);
+        }
+        return new IdentStmt(prev_tok.location, proto.get_return_type(),
+                             this->state, IdentType::FUNCTION, proto, args);
+    }
+    auto ident = idents[0];
+    switch (ident.get_kind()) {
+    case IdentType::VARIABLE:
+    case IdentType::GLOBAL_VARIABLE: {
+        auto var = ident.get_variable();
+        return new IdentStmt(prev_tok.location, var.get_type(), this->state,
+                             ident.get_kind(), var);
+    }
+    case IdentType::CONSTANT: {
+        auto const_ = ident.get_constant();
+        return new IdentStmt(prev_tok.location, const_.get_type(), this->state,
+                             IdentType::CONSTANT, const_);
+    }
+    default:
+        throw ParserException("Unreachable", this->cur_tok);
+    }
 }
 
 Statement *ExpressionParser::parse_binary_expr(int precedence,
@@ -409,7 +482,9 @@ FunProto &ExpressionParser::parse_fun_proto() {
     if (this->at_eof)
         throw ParserException("Unexpected end of file", this->cur_tok);
     if (this->cur_tok.type != TokenType::KEYWORD)
-        throw ParserException("Expected keyword", this->cur_tok);
+        throw ParserException(std::string("Expected keyword, but got ") +
+                                  get_enum_name(this->cur_tok.type),
+                              this->cur_tok);
     if (this->cur_tok.value.as_keyword() != Keyword::FUNCTION)
         throw ParserException("Expected keyword 'function'", this->cur_tok);
     auto prev_tok = this->cur_tok;
@@ -428,16 +503,16 @@ FunProto &ExpressionParser::parse_fun_proto() {
                                   this->cur_tok);
     }
 
-    this->next_token();
     auto params = parse_proto_params();
     /// TODO: Check if this is safe
     if (this->cur_tok.type != TokenType::KEYWORD ||
         this->cur_tok.value.as_keyword() != Keyword::YIELDS)
         throw ParserException(
-            "Expected keyword 'yields' for function prototype", this->cur_tok);
+            "Expected keyword 'yields' for function prototype " + name,
+            this->cur_tok);
     this->next_token();
     if (this->cur_tok.type != TokenType::TYPE)
-        throw ParserException("Expected type for function prototype",
+        throw ParserException("Expected type for function prototype" + name,
                               this->cur_tok);
     auto ret_type = this->cur_tok.value.as_expr_type();
     this->next_token();
@@ -452,12 +527,22 @@ FunStmt *ExpressionParser::parse_function_def() {
         throw ParserException("Unexpected end of file", this->cur_tok);
     auto prev_tok = this->cur_tok;
     auto proto = parse_fun_proto();
+
+    // cultivate scope variables with parameters
+    /// TODO: There has got to be a more elegant way to do this
+    this->state->scope_vars.clear();
+    for (auto &arg : proto.get_args()) {
+        this->state->scope_vars.emplace(arg.get_name(), arg);
+    }
+
     auto body = parse_function_body();
     if (proto.get_return_type() != body->get_type()) {
-        throw ParserException("Function body does not match return type",
-                              this->cur_tok);
+        throw ParserException(
+            std::string("Function body does not match return type. Body is ") +
+                get_enum_name(body->get_type()) + " but prototype is " +
+                get_enum_name(proto.get_return_type()),
+            this->cur_tok);
     }
-    this->next_token();
     std::cout << "Function parsed, name is " << proto.get_name() << std::endl;
     return new FunStmt(prev_tok.location, this->state, proto, body);
 }
@@ -494,18 +579,17 @@ Variable ExpressionParser::parse_variable() {
         }
         sel_type = IdentType::GLOBAL_VARIABLE;
     }
-    this->next_token();
     /// TODO: Remove 'as' keyword
     if (this->cur_tok.text != "as") {
         throw ParserException("Expected 'as' keyword at variable definition",
                               this->cur_tok);
     }
-    this->next_token();
+    next_token();
     if (this->cur_tok.type != TokenType::TYPE)
         throw ParserException("Expected type for variable definition",
                               this->cur_tok);
     auto type = this->cur_tok.value.as_expr_type();
-    this->next_token();
+    next_token();
     return Variable(name, type, 8);
 }
 
@@ -518,6 +602,7 @@ void ExpressionParser::parse_constant_def() {
 IdentStmt *ExpressionParser::parse_variable_def() {
     std::cout << "Parsing variable definition" << std::endl;
     auto prev_tok = this->cur_tok;
+    next_token();
     auto result = parse_variable();
     auto name = result.get_name();
     Statement *param = nullptr;
@@ -530,12 +615,14 @@ IdentStmt *ExpressionParser::parse_variable_def() {
         /// TODO: More flexible size
         this->state->global_vars.emplace(name, result);
         this->next_token();
+        std::cout << "Variable parsed, name is " << name << std::endl;
         return new IdentStmt(prev_tok.location, ExprType::NONE, this->state,
                              IdentType::VARIABLE,
                              this->state->global_vars.at(name), param);
     } else {
         this->state->scope_vars.emplace(name, result);
         this->next_token();
+        std::cout << "Variable parsed, name is " << name << std::endl;
         return new IdentStmt(prev_tok.location, ExprType::NONE, this->state,
                              IdentType::GLOBAL_VARIABLE,
                              this->state->scope_vars.at(name), param);

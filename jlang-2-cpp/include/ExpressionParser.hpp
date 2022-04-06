@@ -4,15 +4,27 @@
 #include "JlangObjects.hpp"
 #include "Statements.hpp"
 #include <functional>
+#include <variant>
 
 #define UNIQUE(obj) std::unique_ptr<obj>
 
 namespace jlang {
-/// Unused.
-typedef struct IdentLookup_s {
-    IdentType type;
-    size_t index;
-} IdentLookup;
+
+// TODO: Maybe use this instead of multiple vectors for the state management
+struct IdentLookup {
+  private:
+    std::variant<Variable, Constant, FunProto> ref;
+    IdentType kind;
+
+  public:
+    IdentLookup(Variable var, IdentType kind) : ref(var), kind(kind) {}
+    IdentLookup(Constant con) : ref(con), kind(IdentType::CONSTANT) {}
+    IdentLookup(FunProto proto) : ref(proto), kind(IdentType::FUNCTION) {}
+    const IdentType get_kind() const { return kind; }
+    const Variable &get_variable() const { return std::get<Variable>(ref); }
+    const Constant &get_constant() const { return std::get<Constant>(ref); }
+    const FunProto &get_function() const { return std::get<FunProto>(ref); }
+};
 namespace parser {
 class ExpressionParser {
   private:
@@ -45,15 +57,16 @@ class ExpressionParser {
             this->at_eof = true;
             return this->cur_tok;
         }
+        this->index++;
         this->cur_tok = this->state->tokens[this->index];
-        return this->state->tokens[this->index++];
+        return this->state->tokens[this->index];
     }
     inline Token &peek_token() {
         if (this->index >= this->state->tokens.size()) {
             this->at_eof = true;
             return this->cur_tok;
         }
-        return this->state->tokens[this->index];
+        return this->cur_tok;
     }
     inline int get_precedence() {
         if (this->cur_tok.type == TokenType::OPERATOR) {
@@ -81,6 +94,8 @@ class ExpressionParser {
     /// Parse Expressions passed to function call
     statements::BlockStmt *parse_call_args();
     // std::vector<UNIQUE(statements::Expression)> parse_call_args();
+    /// Create a list of identifier lookups for the given identifier name
+    std::vector<IdentLookup> get_ident_list(std::string ident_name);
     /// Create a new identifier reference for use in the AST
     std::vector<statements::IdentStmt *> get_ident_ref(std::string ident_name);
 

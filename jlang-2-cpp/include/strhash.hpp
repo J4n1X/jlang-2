@@ -13,8 +13,8 @@ namespace strhash {
 // }
 
 static unsigned constexpr hash(char const *input) {
-  return *input ? static_cast<unsigned int>(*input) + 33 * hash(input + 1)
-                : 5381;
+    return *input ? static_cast<unsigned int>(*input) + 33 * hash(input + 1)
+                  : 5381;
 }
 } // namespace strhash
 

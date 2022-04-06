@@ -23,6 +23,7 @@ if(CLANG_FORMAT)
     add_custom_target(
         clang-format
         COMMAND /usr/bin/clang-format
+        -style=file
         -i
         ${TARGET_CLANG_FORMAT_FILES}   
     )

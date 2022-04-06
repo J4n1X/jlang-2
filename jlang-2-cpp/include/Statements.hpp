@@ -14,168 +14,170 @@
 namespace jlang {
 namespace statements {
 struct Statement {
-protected:
-  Location loc;
-  ExprType type;
-  StatementType kind;
-  std::shared_ptr<jlang::CompilerState> parser;
+  protected:
+    Location loc;
+    ExprType type;
+    StatementType kind;
+    std::shared_ptr<jlang::CompilerState> parser;
 
-public:
-  Statement() = default;
-  Statement(Location loc, ExprType type, StatementType kind,
-            std::shared_ptr<jlang::CompilerState> parser)
-      : loc(loc), type(type), kind(kind), parser(parser) {}
-  const auto get_loc() const { return this->loc; }
-  const auto get_type() const { return this->type; }
-  void set_type(ExprType type) { this->type = type; }
-  const auto get_kind() const { return this->kind; }
-  virtual ~Statement() = default;
-  virtual std::string to_string() const {
-    throw std::runtime_error(
-        "String conversion not implemented for this statement");
-  }
-  virtual std::string codegen() const {
-    throw std::runtime_error("Codegen not implemented for this statement");
-  }
+  public:
+    Statement() = default;
+    Statement(Location loc, ExprType type, StatementType kind,
+              std::shared_ptr<jlang::CompilerState> parser)
+        : loc(loc), type(type), kind(kind), parser(parser) {}
+    const auto get_loc() const { return this->loc; }
+    const auto get_type() const { return this->type; }
+    void set_type(ExprType type) { this->type = type; }
+    const auto get_kind() const { return this->kind; }
+    virtual ~Statement() = default;
+    virtual std::string to_string() const {
+        throw std::runtime_error(
+            "String conversion not implemented for this statement");
+    }
+    virtual std::string codegen() const {
+        throw std::runtime_error("Codegen not implemented for this statement");
+    }
 };
 
 struct BlockStmt : public Statement {
-protected:
-  std::vector<Statement *> statements;
+  protected:
+    std::vector<Statement *> statements;
 
-public:
-  BlockStmt(Location loc, ExprType type,
-            std::shared_ptr<jlang::CompilerState> parser,
-            std::vector<Statement *> statements)
-      : Statement(loc, type, StatementType::BLOCK, parser),
-        statements(statements) {}
-  BlockStmt(Location loc, ExprType type, StatementType kind,
-            std::shared_ptr<jlang::CompilerState> parser,
-            std::vector<Statement *> statements)
-      : Statement(loc, type, kind, parser), statements(statements) {}
-  BlockStmt() = default;
+  public:
+    BlockStmt(Location loc, ExprType type,
+              std::shared_ptr<jlang::CompilerState> parser,
+              std::vector<Statement *> statements)
+        : Statement(loc, type, StatementType::BLOCK, parser),
+          statements(statements) {}
+    BlockStmt(Location loc, ExprType type, StatementType kind,
+              std::shared_ptr<jlang::CompilerState> parser,
+              std::vector<Statement *> statements)
+        : Statement(loc, type, kind, parser), statements(statements) {}
+    BlockStmt() = default;
 
-  const auto &get_statements() const { return this->statements; }
-  auto &get_statements() { return this->statements; }
-  const std::size_t get_size() const { return this->statements.size(); }
+    const auto &get_statements() const { return this->statements; }
+    auto &get_statements() { return this->statements; }
+    const std::size_t get_size() const { return this->statements.size(); }
 
-  ~BlockStmt() override {
-    for (auto stmt : this->statements) {
-      delete stmt;
+    ~BlockStmt() override {
+        for (auto stmt : this->statements) {
+            delete stmt;
+        }
     }
-  }
 };
 
 struct LiteralStmt : public Statement {
-private:
-  std::variant<uint64_t, std::string> value;
+  private:
+    std::variant<uint64_t, std::string> value;
 
-public:
-  LiteralStmt(Location loc, ExprType type,
-              std::shared_ptr<jlang::CompilerState> parser, std::string value)
-      : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
-  LiteralStmt(Location loc, ExprType type,
-              std::shared_ptr<jlang::CompilerState> parser, std::uint64_t value)
-      : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
-  LiteralStmt() = default;
+  public:
+    LiteralStmt(Location loc, ExprType type,
+                std::shared_ptr<jlang::CompilerState> parser, std::string value)
+        : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
+    LiteralStmt(Location loc, ExprType type,
+                std::shared_ptr<jlang::CompilerState> parser,
+                std::uint64_t value)
+        : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
+    LiteralStmt() = default;
 };
 
 struct IdentStmt : public Statement {
-private:
-  IdentType ident_kind;
-  std::variant<Variable, Constant, FunProto> target;
-  Statement *param; // can hold function call args or a variable value
-public:
-  IdentStmt(Location loc, ExprType type,
-            std::shared_ptr<jlang::CompilerState> parser, IdentType ident_kind,
-            std::variant<Variable, Constant, FunProto> target,
-            Statement *param = nullptr)
-      : Statement(loc, type, StatementType::IDENT, parser),
-        ident_kind(ident_kind), target(target), param(param) {}
+  private:
+    IdentType ident_kind;
+    std::variant<Variable, Constant, FunProto> target;
+    Statement *param; // can hold function call args or a variable value
+  public:
+    IdentStmt(Location loc, ExprType type,
+              std::shared_ptr<jlang::CompilerState> parser,
+              IdentType ident_kind,
+              std::variant<Variable, Constant, FunProto> target,
+              Statement *param = nullptr)
+        : Statement(loc, type, StatementType::IDENT, parser),
+          ident_kind(ident_kind), target(target), param(param) {}
 
-  const auto get_ident_kind() const { return this->ident_kind; }
+    const auto get_ident_kind() const { return this->ident_kind; }
 };
 
 struct FunStmt : public Statement {
-private:
-  FunProto &proto;
-  BlockStmt *body;
+  private:
+    FunProto &proto;
+    BlockStmt *body;
 
-public:
-  FunStmt(Location loc, std::shared_ptr<jlang::CompilerState> parser,
-          FunProto &proto, BlockStmt *body)
-      : Statement(loc, proto.get_return_type(), StatementType::FUNCTION,
-                  parser),
-        proto(proto), body(body) {}
-  ~FunStmt() override { delete this->body; }
+  public:
+    FunStmt(Location loc, std::shared_ptr<jlang::CompilerState> parser,
+            FunProto &proto, BlockStmt *body)
+        : Statement(loc, proto.get_return_type(), StatementType::FUNCTION,
+                    parser),
+          proto(proto), body(body) {}
+    ~FunStmt() override { delete this->body; }
 };
 
 struct FunCallStmt : public Statement {
-private:
-  FunProto proto;
-  Statement *args;
+  private:
+    FunProto proto;
+    Statement *args;
 
-public:
-  FunCallStmt(Location loc, ExprType type,
-              std::shared_ptr<jlang::CompilerState> parser, FunProto &proto,
-              Statement *args)
-      : Statement(loc, type, StatementType::FUNCALL, parser), proto(proto),
-        args(args) {}
+  public:
+    FunCallStmt(Location loc, ExprType type,
+                std::shared_ptr<jlang::CompilerState> parser, FunProto &proto,
+                Statement *args)
+        : Statement(loc, type, StatementType::FUNCALL, parser), proto(proto),
+          args(args) {}
 };
 
 struct IntrinsicStmt : public Statement {
-private:
-  Intrinsic intrinsic_kind;
-  Statement *args;
+  private:
+    Intrinsic intrinsic_kind;
+    Statement *args;
 
-public:
-  IntrinsicStmt(Location loc, ExprType type,
-                std::shared_ptr<jlang::CompilerState> parser,
-                Intrinsic intrinsic_kind, Statement *args)
-      : Statement(loc, type, StatementType::INTRINSIC, parser),
-        intrinsic_kind(intrinsic_kind), args(args) {}
-  const Intrinsic get_intrinsic_kind() const { return this->intrinsic_kind; }
-  ~IntrinsicStmt() override { delete this->args; }
+  public:
+    IntrinsicStmt(Location loc, ExprType type,
+                  std::shared_ptr<jlang::CompilerState> parser,
+                  Intrinsic intrinsic_kind, Statement *args)
+        : Statement(loc, type, StatementType::INTRINSIC, parser),
+          intrinsic_kind(intrinsic_kind), args(args) {}
+    const Intrinsic get_intrinsic_kind() const { return this->intrinsic_kind; }
+    ~IntrinsicStmt() override { delete this->args; }
 };
 
 struct ControlStmt : public Statement {
-private:
-  ControlType control_kind;
-  Statement *condition;
-  std::vector<Statement *> statements;
+  private:
+    ControlType control_kind;
+    Statement *condition;
+    std::vector<Statement *> statements;
 
-public:
-  ControlStmt(Location loc, ExprType type,
-              std::shared_ptr<jlang::CompilerState> parser,
-              ControlType control_kind, Statement *condition,
-              std::vector<Statement *> statements)
-      : Statement(loc, type, StatementType::CONTROL, parser),
-        control_kind(control_kind), condition(condition),
-        statements(statements) {}
-  ~ControlStmt() override {
-    delete this->condition;
-    for (auto stmt : this->statements) {
-      delete stmt;
+  public:
+    ControlStmt(Location loc, ExprType type,
+                std::shared_ptr<jlang::CompilerState> parser,
+                ControlType control_kind, Statement *condition,
+                std::vector<Statement *> statements)
+        : Statement(loc, type, StatementType::CONTROL, parser),
+          control_kind(control_kind), condition(condition),
+          statements(statements) {}
+    ~ControlStmt() override {
+        delete this->condition;
+        for (auto stmt : this->statements) {
+            delete stmt;
+        }
     }
-  }
 };
 
 struct BinaryStmt : public Statement {
-private:
-  Operator op;
-  Statement *left;
-  Statement *right;
+  private:
+    Operator op;
+    Statement *left;
+    Statement *right;
 
-public:
-  BinaryStmt(Location loc, ExprType type,
-             std::shared_ptr<jlang::CompilerState> parser, Operator op,
-             Statement *left, Statement *right)
-      : Statement(loc, type, StatementType::BINARY, parser), op(op), left(left),
-        right(right) {}
-  ~BinaryStmt() override {
-    delete this->left;
-    delete this->right;
-  }
+  public:
+    BinaryStmt(Location loc, ExprType type,
+               std::shared_ptr<jlang::CompilerState> parser, Operator op,
+               Statement *left, Statement *right)
+        : Statement(loc, type, StatementType::BINARY, parser), op(op),
+          left(left), right(right) {}
+    ~BinaryStmt() override {
+        delete this->left;
+        delete this->right;
+    }
 };
 
 /// A simple statement which specifies the type and the location from which it

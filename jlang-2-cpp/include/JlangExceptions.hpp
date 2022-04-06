@@ -8,18 +8,18 @@
 
 namespace jlang {
 class ParserException : std::exception {
-  const char *message;
-  const Token token;
+    const char *message;
+    const Token token;
 
-public:
-  ParserException(const char *msg, const Token token)
-      : message(msg), token(token) {}
-  const char *what() const throw() {
-    // copy the stringstream into a string
-    return message;
-  }
-  const Token &which() const throw() { return token; }
-  const std::string where() const throw() { return token.location.display(); }
+  public:
+    ParserException(const char *msg, const Token token)
+        : message(msg), token(token) {}
+    const char *what() const throw() {
+        // copy the stringstream into a string
+        return message;
+    }
+    const Token &which() const throw() { return token; }
+    const std::string where() const throw() { return token.location.display(); }
 };
 } // namespace jlang
 

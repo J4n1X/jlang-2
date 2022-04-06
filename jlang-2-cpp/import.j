@@ -1,0 +1,1 @@
+constant importedvariable as integer is 69

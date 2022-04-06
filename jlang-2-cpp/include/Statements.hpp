@@ -69,7 +69,7 @@ struct BlockStmt : public Statement {
 struct LiteralStmt : public Statement {
   private:
     std::variant<uint64_t, std::string> value;
-
+    
   public:
     LiteralStmt(Location loc, ExprType type,
                 std::shared_ptr<jlang::CompilerState> parser, std::string value)
@@ -78,6 +78,12 @@ struct LiteralStmt : public Statement {
                 std::shared_ptr<jlang::CompilerState> parser,
                 std::uint64_t value)
         : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
+    const std::string &get_string_value() const {
+        return std::get<std::string>(this->value);
+    }
+    std::uint64_t get_int_value() const {
+        return std::get<std::uint64_t>(this->value);
+    }
     LiteralStmt() = default;
 };
 

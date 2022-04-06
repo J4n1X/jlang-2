@@ -1,8 +1,10 @@
 #include "ExpressionParser.hpp"
 #include "JlangExceptions.hpp"
+#include "Tokenizer.hpp"
 #include <algorithm>
 #include <iostream>
 #include <ranges>
+#include <filesystem>
 
 using namespace jlang;
 using namespace jlang::statements;
@@ -557,10 +559,7 @@ Variable ExpressionParser::parse_variable() {
             if (get_ident_precedence(ref->get_ident_kind()) >=
                 get_ident_precedence(IdentType::VARIABLE)) {
                 throw ParserException(
-                    (new std::string("Redefinition of identifier '" +
-                                     cur_tok.text + "', first defined at " +
-                                     ref->get_loc().display()))
-                        ->c_str(),
+                    std::string("Redefinition of identifier '" + cur_tok.text + "', first defined at " + ref->get_loc().display()),
                     this->cur_tok);
             }
         }
@@ -570,10 +569,9 @@ Variable ExpressionParser::parse_variable() {
             if (get_ident_precedence(ref->get_ident_kind()) >=
                 get_ident_precedence(IdentType::VARIABLE)) {
                 throw ParserException(
-                    (new std::string("Redefinition of identifier '" +
+                    std::string("Redefinition of identifier '" +
                                      cur_tok.text + "', first defined at " +
-                                     ref->get_loc().display()))
-                        ->c_str(),
+                                     ref->get_loc().display()),
                     this->cur_tok);
             }
         }
@@ -594,9 +592,41 @@ Variable ExpressionParser::parse_variable() {
 }
 
 void ExpressionParser::parse_constant_def() {
-
-    throw NotImplementedException(
-        "ExpressionParser::parse_constant_def is not implemented yet");
+    /// TODO: Evaluate constant math expressions
+    std::cout << "Parsing constant definition" << std::endl;
+    auto prev_tok = this->cur_tok;
+    next_token();
+    if(this->cur_tok.type != TokenType::IDENTIFIER)
+        throw ParserException("Expected identifier for constant definition",
+                              this->cur_tok);
+    auto name = this->cur_tok.text;
+    next_token();
+    if(this->state->constants.find(name) != this->state->constants.end())
+        throw ParserException("Constant name already in use", prev_tok);
+    if(this->cur_tok.text != "as")
+      throw ParserException("Expected 'as' at constant definition",
+                              this->cur_tok);
+    next_token();
+    if(this->cur_tok.type != TokenType::TYPE)
+      throw ParserException("Expected type for constant definition",
+                              this->cur_tok);
+    auto type = this->cur_tok.value.as_expr_type();
+    next_token();
+    if(this->cur_tok.text != "is")
+      throw ParserException("Expected 'is' at constant definition",
+                              this->cur_tok);
+    next_token();
+    auto expr = parse_expression();
+    if(expr->get_kind() != StatementType::LITERAL)
+      throw ParserException("Expected literal value for constant definition",
+                              this->cur_tok);
+    if(type == ExprType::INTEGER){
+        this->state->constants.emplace(name, Constant(name, type, 8, ((LiteralStmt*)expr)->get_int_value()));
+    }
+    else{
+        this->state->constants.emplace(name, Constant(name, type, 8, ((LiteralStmt*)expr)->get_string_value()));
+    }
+    std::cout << "Constant parsed, name is " << name << std::endl;
 }
 
 IdentStmt *ExpressionParser::parse_variable_def() {
@@ -630,8 +660,15 @@ IdentStmt *ExpressionParser::parse_variable_def() {
 }
 
 void ExpressionParser::parse_import() {
-    throw NotImplementedException(
-        "ExpressionParser::parse_import is not implemented yet");
+    auto prev_tok = this->cur_tok;
+    next_token();
+    // check if file exists
+    if(!std::filesystem::exists(this->cur_tok.value.as_string()))
+        throw ParserException("File does not exist: " + this->cur_tok.value.as_string(), prev_tok);
+    auto tokens = Tokenizer(this->cur_tok.text).get_tokens();
+    // insert tokens
+    this->state->tokens.insert(this->state->tokens.begin() + this->index + 1, tokens.begin(), tokens.end());    
+    next_token();
 }
 
 statements::ControlStmt *ExpressionParser::parse_control_stmt(Keyword kind) {

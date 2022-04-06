@@ -579,11 +579,17 @@ typedef struct CompilerState_s {
         std::stringstream ss;
         ss << "Constants: " << std::endl;
         for (auto &[name, constant] : constants) {
-            ss << "bruh" << std::endl;
             ss << constant.get_name() << " : "
                << get_enum_name(constant.get_type()) << " : "
-               << constant.get_size() << std::endl;
+               << constant.get_size() << " : ";
+            if (constant.get_type() == ExprType::POINTER) {
+                ss << constant.get_string_value();
+            } else {
+                ss << constant.get_int_value();
+            }
+            ss << std::endl;
         }
+        ss << "------------------------\n\n";
         ss << "Prototypes: " << std::endl;
         for (auto &[name, proto] : prototypes) {
             ss << name << " : " << get_enum_name(proto.get_return_type())
@@ -594,11 +600,13 @@ typedef struct CompilerState_s {
                    << std::endl;
             }
         }
+        ss << "------------------------\n\n";
         ss << "Global Variables: " << std::endl;
         for (auto &[name, var] : global_vars) {
             ss << var.get_name() << " : " << get_enum_name(var.get_type())
                << " : " << var.get_size() << std::endl;
         }
+        ss << "------------------------\n\n";
         ss << "Scope Variables: " << std::endl;
         for (auto &[name, var] : scope_vars) {
             ss << var.get_name() << " : " << get_enum_name(var.get_type())

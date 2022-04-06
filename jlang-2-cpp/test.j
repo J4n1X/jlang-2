@@ -1,3 +1,7 @@
+import "import.j"
+
+constant testconst as integer is 10
+
 function add(a as integer, b as integer) yields integer is
     return a plus b
 done

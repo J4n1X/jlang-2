@@ -19,6 +19,10 @@ add_executable(jlang main.cpp ${TARGET_CXX_SOURCE_FILES})
 set_property(TARGET jlang PROPERTY CXX_STANDARD 20)
 target_include_directories(jlang PRIVATE ${TARGET_SOURCE_DIR}/include ${TARGET_SOURCE_DIR}/src)
 
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+    add_compile_definitions(DEBUG)
+endif()
+
 if(CLANG_FORMAT)
     add_custom_target(
         clang-format

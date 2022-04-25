@@ -34,7 +34,8 @@ struct Statement {
         throw std::runtime_error(
             "String conversion not implemented for this statement");
     }
-    virtual std::string codegen() const {
+    /// Return true if successfull, false otherwise
+    virtual bool codegen(std::ostream &sink) {
         throw std::runtime_error("Codegen not implemented for this statement");
     }
 };
@@ -55,6 +56,7 @@ struct BlockStmt : public Statement {
         : Statement(loc, type, kind, parser), statements(statements) {}
     BlockStmt() = default;
 
+    virtual bool codegen(std::ostream &sink) override;
     const auto &get_statements() const { return this->statements; }
     auto &get_statements() { return this->statements; }
     const std::size_t get_size() const { return this->statements.size(); }
@@ -69,7 +71,7 @@ struct BlockStmt : public Statement {
 struct LiteralStmt : public Statement {
   private:
     std::variant<uint64_t, std::string> value;
-    
+
   public:
     LiteralStmt(Location loc, ExprType type,
                 std::shared_ptr<jlang::CompilerState> parser, std::string value)
@@ -78,6 +80,8 @@ struct LiteralStmt : public Statement {
                 std::shared_ptr<jlang::CompilerState> parser,
                 std::uint64_t value)
         : Statement(loc, type, StatementType::LITERAL, parser), value(value) {}
+
+    virtual bool codegen(std::ostream &sink) override;
     const std::string &get_string_value() const {
         return std::get<std::string>(this->value);
     }
@@ -101,6 +105,7 @@ struct IdentStmt : public Statement {
         : Statement(loc, type, StatementType::IDENT, parser),
           ident_kind(ident_kind), target(target), param(param) {}
 
+    virtual bool codegen(std::ostream &sink) override;
     const auto get_ident_kind() const { return this->ident_kind; }
     void set_param(Statement *param) { this->param = param; }
     ~IdentStmt() {
@@ -112,7 +117,7 @@ struct IdentStmt : public Statement {
 
 struct FunStmt : public Statement {
   private:
-    FunProto &proto;
+    std::string proto_name;
     BlockStmt *body;
 
   public:
@@ -120,7 +125,16 @@ struct FunStmt : public Statement {
             FunProto &proto, BlockStmt *body)
         : Statement(loc, proto.get_return_type(), StatementType::FUNCTION,
                     parser),
-          proto(proto), body(body) {}
+          proto_name(proto.get_name()), body(body) {}
+    FunStmt(Location loc, std::shared_ptr<jlang::CompilerState> parser,
+            std::string proto_name, BlockStmt *body)
+        : Statement(loc, parser->prototypes.at(proto_name).get_return_type(), StatementType::FUNCTION, parser), body(body),
+          proto_name(proto_name) {}
+    const FunProto &get_proto() const {
+        return this->parser->prototypes.at(this->proto_name);
+    }
+    virtual bool codegen(std::ostream &sink) override;
+
     ~FunStmt() override { delete this->body; }
 };
 
@@ -150,6 +164,8 @@ struct IntrinsicStmt : public Statement {
                   Intrinsic intrinsic_kind, Statement *args)
         : Statement(loc, type, StatementType::INTRINSIC, parser),
           intrinsic_kind(intrinsic_kind), args(args) {}
+
+    virtual bool codegen(std::ostream &sink) override;
     const Intrinsic get_intrinsic_kind() const { return this->intrinsic_kind; }
     ~IntrinsicStmt() override { delete this->args; }
 };
@@ -168,6 +184,7 @@ struct ControlStmt : public Statement {
         : Statement(loc, type, StatementType::CONTROL, parser),
           control_kind(control_kind), condition(condition),
           statements(statements) {}
+    virtual bool codegen(std::ostream &sink) override;
     ~ControlStmt() override {
         delete this->condition;
         for (auto stmt : this->statements) {
@@ -188,6 +205,7 @@ struct BinaryStmt : public Statement {
                Statement *left, Statement *right)
         : Statement(loc, type, StatementType::BINARY, parser), op(op),
           left(left), right(right) {}
+    virtual bool codegen(std::ostream &sink) override;
     ~BinaryStmt() override {
         delete this->left;
         delete this->right;
@@ -666,8 +684,5 @@ struct BinaryStmt : public Statement {
 //        };
 } // namespace statements
 } // namespace jlang
-
-#define STATEMENTS_FUNCTIONS
-#include "Statements.cpp"
 
 #endif

@@ -501,9 +501,9 @@ class Variable {
     Variable(std::string name, ExprType type, size_t size)
         : name(name), type(type), size(size) {}
     Variable() : name(""), type(ExprType::INVALID), size(0) {}
-    const std::string get_name() const { return name; }
-    const ExprType get_type() const { return type; }
-    const size_t get_size() const { return size; }
+    const std::string &get_name() const { return name; }
+    const ExprType &get_type() const { return type; }
+    const size_t &get_size() const { return size; }
     auto operator==(const Variable &other) const {
         return name == other.name && type == other.type;
     }
@@ -516,19 +516,29 @@ class Variable {
 class Constant : public Variable {
   private:
     std::variant<uint64_t, std::string> value;
+    bool is_string_v;
 
   public:
     Constant(std::string name, ExprType type, size_t size, uint64_t value)
         : Variable(name, type, size) {
         this->value = value;
+        this->is_string_v = false;
     }
     Constant(std::string name, ExprType type, size_t size, std::string value)
         : Variable(name, type, size) {
         this->value = value;
+        this->is_string_v = true;
     }
     Constant() : Variable() {}
-    const uint64_t &get_int_value() const { return std::get<uint64_t>(value); }
+    const bool is_string() const { return is_string_v; }
+    const uint64_t &get_int_value() const {
+        if (is_string_v)
+            throw NotImplementedException("get_int_value() on string");
+        return std::get<uint64_t>(value);
+    }
     const std::string &get_string_value() const {
+        if (!is_string_v)
+            throw NotImplementedException("get_string_value() on int");
         return std::get<std::string>(value);
     }
     auto operator==(const Constant &other) const {
@@ -565,16 +575,19 @@ class FunProto {
     }
 };
 
-typedef struct CompilerState_s {
+struct CompilerState {
     std::vector<Token> tokens;
     std::map<std::string, Constant> constants;
     std::map<std::string, FunProto> prototypes;
     std::map<std::string, Variable> global_vars;
+
     std::map<std::string, Variable> scope_vars;
+    std::map<std::string, size_t> scope_var_offsets;
+
     std::vector<Variable> anon_global_vars;
     std::vector<Variable> anon_scope_vars;
     bool in_scope;
-
+    size_t pushed_size;
     const std::string dump() {
         std::stringstream ss;
         ss << "Constants: " << std::endl;
@@ -614,8 +627,14 @@ typedef struct CompilerState_s {
         }
         return ss.str();
     }
-} CompilerState;
+};
 
+template <typename... Args>
+void debug_print(std::ostream &sink, Args &&...args) {
+#ifdef DEBUG
+    (sink << ... << args);
+#endif
+}
 } // namespace jlang
 
 #undef ENUM_TOKENTYPE

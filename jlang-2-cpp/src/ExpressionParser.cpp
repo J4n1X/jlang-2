@@ -2,9 +2,9 @@
 #include "JlangExceptions.hpp"
 #include "Tokenizer.hpp"
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <ranges>
-#include <filesystem>
 
 using namespace jlang;
 using namespace jlang::statements;
@@ -73,7 +73,7 @@ BlockStmt *ExpressionParser::parse_function_body() {
         if (stmt->get_kind() == StatementType::INTRINSIC) {
             if (((IntrinsicStmt *)stmt)->get_intrinsic_kind() ==
                 Intrinsic::RETURN) {
-                std::cout << "Found return statement" << '\n';
+                debug_print(std::cout, "Found return statement\n");
                 ret_type = stmt->get_type();
                 break;
             }
@@ -187,12 +187,11 @@ std::vector<statements::Statement *> ExpressionParser::parse_program() {
     while (!this->at_eof) {
         statements.push_back(parse_any());
     }
-    std::cout << this->state->dump() << std::endl;
+    debug_print(std::cout, this->state->dump(), '\n');
     return statements;
 }
 
 statements::Statement *ExpressionParser::parse_primary() {
-    std::cout << this->cur_tok.display() << std::endl;
     statements::Statement *ret_expr;
     if (this->at_eof) {
         throw ParserException("Unexpected end of file", this->cur_tok);
@@ -236,7 +235,7 @@ statements::Statement *ExpressionParser::parse_any() {
     // else start parsing a binary expression
     // cast the statement into an expression
     /// TODO: Check if this causes a memory leak
-    if (this->peek_token().type == TokenType::OPERATOR)
+    if (this->cur_tok.type == TokenType::OPERATOR)
         return parse_binary_expr(0, stmt);
     else
         return stmt;
@@ -320,7 +319,6 @@ statements::Statement *ExpressionParser::parse_string_literal_expr() {
 
 /// Parse an intrinsic function call
 statements::Statement *ExpressionParser::parse_intrinsic() {
-    std::cout << "Parsing intrinsic" << std::endl;
     auto intrinsic = this->cur_tok.value.as_intrinsic();
     ExprType ret_type = ExprType::NONE;
     auto prev_tok = this->cur_tok;
@@ -413,7 +411,6 @@ IdentStmt *ExpressionParser::parse_ident() {
     }
     auto paren_check_tok = this->next_token();
     if (paren_check_tok.type == TokenType::PAREN_BLOCK_START) {
-        std::cout << "Parsing function call" << std::endl;
         // filter out all but the first one of function type
         idents.erase(std::remove_if(idents.begin(), idents.end(),
                                     [](const auto &ident) {
@@ -454,7 +451,6 @@ IdentStmt *ExpressionParser::parse_ident() {
 
 Statement *ExpressionParser::parse_binary_expr(int precedence,
                                                Statement *left) {
-    std::cout << "Parsing binary expr" << std::endl;
     if (this->at_eof)
         return left;
     // return recast_base_pointer<Expression, BinaryExpr>(std::move(left));
@@ -492,10 +488,11 @@ FunProto &ExpressionParser::parse_fun_proto() {
     auto prev_tok = this->cur_tok;
     this->next_token();
     if (this->cur_tok.type != TokenType::IDENTIFIER)
-        throw ParserException("Expected identifier for function prototype",
+        throw ParserException(std::string("Expected identifier for function "
+                                          "prototype, but got Token of type ") +
+                                  get_enum_name(this->cur_tok.type),
                               this->cur_tok);
     std::string name = this->cur_tok.text;
-    std::cout << "Parsing function prototype: " << name << std::endl;
 
     auto references = get_ident_ref(name);
     for (auto &ref : references) {
@@ -510,11 +507,14 @@ FunProto &ExpressionParser::parse_fun_proto() {
     if (this->cur_tok.type != TokenType::KEYWORD ||
         this->cur_tok.value.as_keyword() != Keyword::YIELDS)
         throw ParserException(
-            "Expected keyword 'yields' for function prototype " + name,
+            "Expected keyword 'yields' for function prototype " + name +
+                ", but got Token of type " + get_enum_name(this->cur_tok.type),
             this->cur_tok);
     this->next_token();
     if (this->cur_tok.type != TokenType::TYPE)
-        throw ParserException("Expected type for function prototype" + name,
+        throw ParserException("Expected type for function prototype" + name +
+                                  ", but got Token of type " +
+                                  get_enum_name(this->cur_tok.type),
                               this->cur_tok);
     auto ret_type = this->cur_tok.value.as_expr_type();
     this->next_token();
@@ -524,15 +524,17 @@ FunProto &ExpressionParser::parse_fun_proto() {
 }
 
 FunStmt *ExpressionParser::parse_function_def() {
-    std::cout << "Parsing function" << std::endl;
     if (this->at_eof)
         throw ParserException("Unexpected end of file", this->cur_tok);
+    this->state->scope_vars.clear();
+    this->state->anon_scope_vars.clear();
+    this->in_scope = true;
+
     auto prev_tok = this->cur_tok;
     auto proto = parse_fun_proto();
 
     // cultivate scope variables with parameters
     /// TODO: There has got to be a more elegant way to do this
-    this->state->scope_vars.clear();
     for (auto &arg : proto.get_args()) {
         this->state->scope_vars.emplace(arg.get_name(), arg);
     }
@@ -545,7 +547,8 @@ FunStmt *ExpressionParser::parse_function_def() {
                 get_enum_name(proto.get_return_type()),
             this->cur_tok);
     }
-    std::cout << "Function parsed, name is " << proto.get_name() << std::endl;
+    debug_print(std::cout, "Function parsed, name is ", proto.get_name(), '\n');
+    this->in_scope = false;
     return new FunStmt(prev_tok.location, this->state, proto, body);
 }
 
@@ -559,7 +562,9 @@ Variable ExpressionParser::parse_variable() {
             if (get_ident_precedence(ref->get_ident_kind()) >=
                 get_ident_precedence(IdentType::VARIABLE)) {
                 throw ParserException(
-                    std::string("Redefinition of identifier '" + cur_tok.text + "', first defined at " + ref->get_loc().display()),
+                    std::string("Redefinition of identifier '" + cur_tok.text +
+                                "', first defined at " +
+                                ref->get_loc().display()),
                     this->cur_tok);
             }
         }
@@ -569,9 +574,9 @@ Variable ExpressionParser::parse_variable() {
             if (get_ident_precedence(ref->get_ident_kind()) >=
                 get_ident_precedence(IdentType::VARIABLE)) {
                 throw ParserException(
-                    std::string("Redefinition of identifier '" +
-                                     cur_tok.text + "', first defined at " +
-                                     ref->get_loc().display()),
+                    std::string("Redefinition of identifier '" + cur_tok.text +
+                                "', first defined at " +
+                                ref->get_loc().display()),
                     this->cur_tok);
             }
         }
@@ -593,44 +598,46 @@ Variable ExpressionParser::parse_variable() {
 
 void ExpressionParser::parse_constant_def() {
     /// TODO: Evaluate constant math expressions
-    std::cout << "Parsing constant definition" << std::endl;
     auto prev_tok = this->cur_tok;
     next_token();
-    if(this->cur_tok.type != TokenType::IDENTIFIER)
+    if (this->cur_tok.type != TokenType::IDENTIFIER)
         throw ParserException("Expected identifier for constant definition",
                               this->cur_tok);
     auto name = this->cur_tok.text;
     next_token();
-    if(this->state->constants.find(name) != this->state->constants.end())
+    if (this->state->constants.find(name) != this->state->constants.end())
         throw ParserException("Constant name already in use", prev_tok);
-    if(this->cur_tok.text != "as")
-      throw ParserException("Expected 'as' at constant definition",
+    if (this->cur_tok.text != "as")
+        throw ParserException("Expected 'as' at constant definition",
                               this->cur_tok);
     next_token();
-    if(this->cur_tok.type != TokenType::TYPE)
-      throw ParserException("Expected type for constant definition",
+    if (this->cur_tok.type != TokenType::TYPE)
+        throw ParserException("Expected type for constant definition",
                               this->cur_tok);
     auto type = this->cur_tok.value.as_expr_type();
     next_token();
-    if(this->cur_tok.text != "is")
-      throw ParserException("Expected 'is' at constant definition",
+    if (this->cur_tok.text != "is")
+        throw ParserException("Expected 'is' at constant definition",
                               this->cur_tok);
     next_token();
     auto expr = parse_expression();
-    if(expr->get_kind() != StatementType::LITERAL)
-      throw ParserException("Expected literal value for constant definition",
+    /// TODO: Add simulation support
+    if (expr->get_kind() != StatementType::LITERAL)
+        throw ParserException("Expected literal value for constant definition",
                               this->cur_tok);
-    if(type == ExprType::INTEGER){
-        this->state->constants.emplace(name, Constant(name, type, 8, ((LiteralStmt*)expr)->get_int_value()));
+    if (type == ExprType::INTEGER) {
+        this->state->constants.emplace(
+            name,
+            Constant(name, type, 8, ((LiteralStmt *)expr)->get_int_value()));
+    } else {
+        this->state->constants.emplace(
+            name,
+            Constant(name, type, 8, ((LiteralStmt *)expr)->get_string_value()));
     }
-    else{
-        this->state->constants.emplace(name, Constant(name, type, 8, ((LiteralStmt*)expr)->get_string_value()));
-    }
-    std::cout << "Constant parsed, name is " << name << std::endl;
+    debug_print(std::cout, "Constant parsed, name is ", name, '\n');
 }
 
 IdentStmt *ExpressionParser::parse_variable_def() {
-    std::cout << "Parsing variable definition" << std::endl;
     auto prev_tok = this->cur_tok;
     next_token();
     auto result = parse_variable();
@@ -641,18 +648,19 @@ IdentStmt *ExpressionParser::parse_variable_def() {
         this->next_token();
         param = parse_expression();
     }
-    if (this->state->in_scope) {
+    /// TODOOOO: clean up this code
+    if (!this->state->in_scope) {
         /// TODO: More flexible size
         this->state->global_vars.emplace(name, result);
         this->next_token();
-        std::cout << "Variable parsed, name is " << name << std::endl;
+        debug_print(std::cout, "Global Variable parsed, name is ", name, '\n');
         return new IdentStmt(prev_tok.location, ExprType::NONE, this->state,
                              IdentType::VARIABLE,
                              this->state->global_vars.at(name), param);
     } else {
         this->state->scope_vars.emplace(name, result);
         this->next_token();
-        std::cout << "Variable parsed, name is " << name << std::endl;
+        debug_print(std::cout, "Local Variable parsed, name is ", name, '\n');
         return new IdentStmt(prev_tok.location, ExprType::NONE, this->state,
                              IdentType::GLOBAL_VARIABLE,
                              this->state->scope_vars.at(name), param);
@@ -660,15 +668,29 @@ IdentStmt *ExpressionParser::parse_variable_def() {
 }
 
 void ExpressionParser::parse_import() {
-    auto prev_tok = this->cur_tok;
+    // drop_token(); // drop_token is currently broken
     next_token();
     // check if file exists
-    if(!std::filesystem::exists(this->cur_tok.value.as_string()))
-        throw ParserException("File does not exist: " + this->cur_tok.value.as_string(), prev_tok);
-    auto tokens = Tokenizer(this->cur_tok.text).get_tokens();
-    // insert tokens
-    this->state->tokens.insert(this->state->tokens.begin() + this->index + 1, tokens.begin(), tokens.end());    
+    std::string file_name = this->cur_tok.value.as_string();
+    if (!std::filesystem::exists(file_name))
+        throw ParserException("File does not exist: " + file_name,
+                              this->cur_tok);
+    auto tokens = Tokenizer(file_name).get_tokens();
+    // remove import keyword
+    // drop_token(); // drop_token is currently broken
     next_token();
+    // insert tokens
+    this->state->tokens.insert(this->state->tokens.begin() + this->index,
+                               tokens.begin(), tokens.end());
+
+#ifdef DEBUG
+    std::cout << "DUMPING TOKENS\n\n";
+    auto token_count = this->state->tokens.size();
+    for (size_t i = 0; i < token_count; i++) {
+        std::cout << "Token " << i + 1 << " out of " << token_count << ": "
+                  << this->state->tokens[i].display() << std::endl;
+    }
+#endif
 }
 
 statements::ControlStmt *ExpressionParser::parse_control_stmt(Keyword kind) {

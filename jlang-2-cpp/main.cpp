@@ -10,16 +10,21 @@ int main(int argc, char **argv) {
         return 1;
     }
     auto tokenizer = jlang::Tokenizer(argv[1]);
+    /*
     for (auto &token : tokenizer.get_tokens()) {
         std::cout << token.display() << '\n';
     }
+    */
 
     auto test = jlang::parser::ExpressionParser(tokenizer.get_tokens());
     try {
         auto statements = test.parse_program();
+        for (auto &statement : statements) {
+            statement->codegen(std::cout);
+        }
     } catch (jlang::ParserException &e) {
-        std::cout << e.what() << " \"" << e.which().text << "\" at "
-                  << e.where() << '\n';
+        std::cout << e.what() << " \"" << e.which().text << " at " << e.where()
+                  << std::endl;
         throw e;
     }
 

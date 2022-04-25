@@ -5,6 +5,8 @@
 #include "Statements.hpp"
 #include <functional>
 #include <variant>
+/// TODO: remove in prod
+#include <iostream>
 
 #define UNIQUE(obj) std::unique_ptr<obj>
 
@@ -53,20 +55,39 @@ class ExpressionParser {
                                    new_tokens.begin(), new_tokens.end());
     }
     inline Token &next_token() {
-        if (this->index + 1 > this->state->tokens.size()) {
+        if ((this->index + 1) >= this->state->tokens.size()) {
+            debug_print(std::cout, "Reached end of file\n");
             this->at_eof = true;
             return this->cur_tok;
         }
         this->index++;
+        debug_print(std::cout, "At Token ", this->index + 1, " out of ",
+                    this->state->tokens.size(), '\n');
         this->cur_tok = this->state->tokens[this->index];
         return this->state->tokens[this->index];
     }
-    inline Token &peek_token() {
-        if (this->index >= this->state->tokens.size()) {
+    inline Token &drop_token() {
+        if (this->state->tokens.size() - 1 == 0 ||
+            this->index + 1 > this->state->tokens.size()) {
             this->at_eof = true;
             return this->cur_tok;
         }
+        this->cur_tok = this->state->tokens[this->index + 1];
+        this->state->tokens.erase(this->state->tokens.begin() + this->index);
+        debug_print(std::cout, "Dropped Token at", this->index, " out of ",
+                    this->state->tokens.size() + 1, ", size is now ",
+                    this->state->tokens.size(), '\n');
         return this->cur_tok;
+    }
+
+    inline Token &peek_token() {
+        if (this->index + 1 >= this->state->tokens.size()) {
+            this->at_eof = true;
+            return this->cur_tok;
+        }
+        debug_print(std::cout, "Peeking at Token ", this->index + 1, " out of ",
+                    this->state->tokens.size(), '\n');
+        return this->state->tokens[this->index + 1];
     }
     inline int get_precedence() {
         if (this->cur_tok.type == TokenType::OPERATOR) {

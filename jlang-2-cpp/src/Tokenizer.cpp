@@ -50,7 +50,7 @@ get_string_result get_string(std::string::iterator it,
         it++;
     }
     if (*it != '"') {
-        std::cout << "Error: Expected '\"' at " << it - end << '\n';
+        std::cerr << "Error: Expected '\"' at " << it - end << '\n';
         return {"", false};
     }
     return {string, true};
@@ -138,7 +138,7 @@ bool Tokenizer::tokenize() {
                     // if word contains -, throw an error
                     auto err_pos = word.find('-');
                     if (err_pos != std::string::npos) {
-                        std::cout << "Invalid character found at "
+                        std::cerr << "Invalid character found at "
                                   << Location(this->in_file_path, line_pos,
                                               column_pos + err_pos)
                                          .display()
@@ -192,7 +192,7 @@ bool Tokenizer::tokenize() {
                 char_pos++;
                 break;
             } else {
-                std::cout << "Unexpected Symbol: " << line[char_pos] << '\n';
+                std::cerr << "Unexpected Symbol: " << line[char_pos] << '\n';
                 return false;
             }
         }
